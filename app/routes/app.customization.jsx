@@ -101,7 +101,7 @@ function toHexColor(color) {
 
 /**
  * An admin-side approximation of the storefront widget. Mirrors the shapes in
- * extensions/product-variants-widget/assets/variant-selector.css rather than
+ * extensions/smart-variants-pro-widget/assets/variant-selector.css rather than
  * importing it, so treat it as a guide, not a pixel-exact render.
  */
 /* eslint-disable react/prop-types -- presentational helper; this project has no prop-types dep */
@@ -453,11 +453,11 @@ export default function Customization() {
   const productFetcher = useFetcher();
   const shopify = useAppBridge();
   const [, setSearchParams] = useSearchParams();
-  const [themeColor, setThemeColor] = useState(settings.themeColor);
   // Single-open accordion: the expanded product is the one being previewed.
   const [expandedId, setExpandedId] = useState(null);
   const [globalPreview, setGlobalPreview] = useState({
     layout: settings.widgetLayout,
+    themeColor: settings.themeColor,
     optionStyles,
     optionContents,
     showAddToCart: settings.showAddToCart,
@@ -542,6 +542,7 @@ export default function Customization() {
       const formData = new FormData(form);
       setGlobalPreview({
         layout: String(formData.get("widgetLayout") || settings.widgetLayout),
+        themeColor: String(formData.get("themeColor") || settings.themeColor),
         optionStyles: optionStylesFromForm(formData),
         optionContents: optionContentsFromForm(formData),
         showAddToCart: formData.get("showAddToCart") !== "false",
@@ -553,7 +554,7 @@ export default function Customization() {
       form.removeEventListener("change", sync);
       form.removeEventListener("input", sync);
     };
-  }, [settings.widgetLayout]);
+  }, [settings.widgetLayout, settings.themeColor]);
 
   useEffect(() => {
     if (!expandedId) return;
@@ -564,12 +565,26 @@ export default function Customization() {
       setProductStyles(optionStylesFromForm(formData));
       setProductContents(optionContentsFromForm(formData));
     };
+    // The colour fields are s-color-field custom elements, so React never
+    // dispatches onChange for them — same reason the styles above are read off
+    // the form. Only fields the merchant actually touched are recorded, so an
+    // untouched value keeps falling through to its Shopify swatch or the
+    // palette default rather than being frozen as an explicit pick.
+    const syncColor = (event) => {
+      const field = event.target;
+      const pair = field?.getAttribute?.("data-pv-color");
+      if (!pair) return;
+      const [key, slug] = pair.split("|");
+      if (key && slug) setColor(key, slug, field.value);
+    };
     sync();
     form.addEventListener("change", sync);
     form.addEventListener("input", sync);
+    form.addEventListener("change", syncColor);
     return () => {
       form.removeEventListener("change", sync);
       form.removeEventListener("input", sync);
+      form.removeEventListener("change", syncColor);
     };
   }, [expandedId]);
 
@@ -693,31 +708,16 @@ export default function Customization() {
             </AccentGroup>
 
             <AccentGroup color={ACCENTS.violet} icon={Droplet} title="Colors">
-              <s-stack direction="block" gap="small-200">
-                <s-text>Theme color</s-text>
-                <s-stack direction="inline" gap="base" alignItems="center">
-                  <input
-                    type="color"
-                    name="themeColor"
-                    value={themeColor}
-                    onChange={(event) => setThemeColor(event.target.value)}
-                    aria-label="Theme color"
-                    style={{
-                      width: "44px",
-                      height: "32px",
-                      padding: 0,
-                      border: "1px solid #ccc",
-                      borderRadius: "6px",
-                      cursor: "pointer",
-                    }}
-                  />
-                  <s-text color="subdued">{themeColor}</s-text>
-                </s-stack>
-                <s-text color="subdued">
-                  Used for the selected option, radio dot, and add to cart
-                  button.
-                </s-text>
-              </s-stack>
+              {/* s-color-field rather than <input type="color">: the admin
+                  iframe is sandboxed, so a native colour input can't open the
+                  OS picker, and its value is read back through the form-level
+                  sync below like every other control here. */}
+              <s-color-field
+                label="Theme color"
+                name="themeColor"
+                value={settings.themeColor}
+                details="Used for the selected option, radio dot, and add to cart button."
+              />
             </AccentGroup>
 
             <AccentGroup color={ACCENTS.green} icon={Sliders} title="Style per option">
@@ -979,37 +979,17 @@ export default function Customization() {
                                                 resolveSwatchColor(value, i),
                                               );
                                             return (
-                                              <label
+                                              // s-color-field for the same
+                                              // reason as the theme colour: a
+                                              // native colour input can't open
+                                              // its picker in the sandboxed
+                                              // admin iframe.
+                                              <s-color-field
                                                 key={slug}
-                                                style={{
-                                                  display: "inline-flex",
-                                                  alignItems: "center",
-                                                  gap: "6px",
-                                                  fontSize: "13px",
-                                                }}
-                                              >
-                                                <input
-                                                  type="color"
-                                                  value={current}
-                                                  aria-label={`${value} colour`}
-                                                  onChange={(e) =>
-                                                    setColor(
-                                                      key,
-                                                      slug,
-                                                      e.target.value,
-                                                    )
-                                                  }
-                                                  style={{
-                                                    width: "32px",
-                                                    height: "32px",
-                                                    padding: 0,
-                                                    border: "1px solid #ccc",
-                                                    borderRadius: "6px",
-                                                    cursor: "pointer",
-                                                  }}
-                                                />
-                                                {value}
-                                              </label>
+                                                label={`${value} colour`}
+                                                value={current}
+                                                data-pv-color={`${key}|${slug}`}
+                                              />
                                             );
                                           })}
                                         </div>
@@ -1103,7 +1083,7 @@ export default function Customization() {
                   resolveStyle={resolveStyle}
                   resolveContent={resolveContent}
                   resolveColor={resolveColor}
-                  themeColor={themeColor}
+                  themeColor={globalPreview.themeColor}
                   showAddToCart={globalPreview.showAddToCart}
                 />
               </PreviewCard>

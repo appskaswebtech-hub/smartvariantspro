@@ -7,7 +7,7 @@ import { Lightbulb } from "../components/icons";
 const FAQS = [
   {
     q: "How do I show the variant selector on my storefront?",
-    a: "Open the theme editor from the Home page, add the “Product Variants Widget” app block to your product template, then save. The widget reads your product’s live variants automatically.",
+    a: "Open the theme editor from the Home page, add the “Smart Variants Pro Widget” app block to your product template, then save. The widget reads your product’s live variants automatically.",
   },
   {
     q: "How many variants can I add?",
@@ -45,7 +45,7 @@ export default function Help() {
       <s-section heading="Getting started">
         <s-ordered-list>
           <s-list-item>
-            Open the theme editor and add the <s-text>Product Variants Widget</s-text>{" "}
+            Open the theme editor and add the <s-text>Smart Variants Pro Widget</s-text>{" "}
             app block to your product template.
           </s-list-item>
           <s-list-item>

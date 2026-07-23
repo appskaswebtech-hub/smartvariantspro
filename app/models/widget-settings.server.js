@@ -1,4 +1,4 @@
-const METAFIELD_NAMESPACE = "product_variants";
+const METAFIELD_NAMESPACE = "smart_variants_pro";
 const METAFIELD_KEY = "settings";
 
 const CURRENT_APP_INSTALLATION_QUERY = `#graphql
@@ -195,7 +195,7 @@ export async function fetchShopOptionNames(admin) {
 /**
  * Publishes widget settings to an app-data metafield on the app
  * installation so the theme app extension can read them via
- * {{ app.metafields.product_variants.settings.value }}.
+ * {{ app.metafields.smart_variants_pro.settings.value }}.
  */
 export async function syncWidgetMetafield(
   admin,

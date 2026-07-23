@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "859f9b23b6088502bb94a5ffc9890d21"
-name = "ProductVariants"
+name = "Smart Variants Pro"
 application_url = "https://example.com"
 embedded = true
 

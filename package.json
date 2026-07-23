@@ -1,5 +1,5 @@
 {
-  "name": "product-variants",
+  "name": "smart-variants-pro",
   "private": true,
   "scripts": {
     "build": "react-router build",

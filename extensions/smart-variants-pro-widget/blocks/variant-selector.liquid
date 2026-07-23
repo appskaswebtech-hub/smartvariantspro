@@ -17,7 +17,7 @@
     metafield. 'radio' carries over the default the removed theme-editor
     setting used to supply, for shops that have never saved the app.
   {%- endcomment -%}
-  {%- assign pv_settings = app.metafields.product_variants.settings.value -%}
+  {%- assign pv_settings = app.metafields.smart_variants_pro.settings.value -%}
   {%- assign pv_layout = pv_settings.layout | default: 'radio' -%}
   {%- if pv_layout == 'buttons' -%}
     {%- assign pv_layout = 'radio' -%}
@@ -286,7 +286,7 @@
 
 {% schema %}
 {
-  "name": "t:names.product_variants_widget",
+  "name": "t:names.smart_variants_pro_widget",
   "target": "section",
   "stylesheet": "variant-selector.css",
   "javascript": "variant-selector.js",

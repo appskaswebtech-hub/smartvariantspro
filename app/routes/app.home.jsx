@@ -34,7 +34,7 @@ export default function Home() {
       </s-button>
 
       <PageHero
-        title="Product Variants"
+        title="Smart Variants Pro"
         subtitle="Offer up to 2,048 variants and show them with a custom storefront selector."
         icon={Sparkles}
         from={ACCENTS.indigo}
@@ -43,9 +43,9 @@ export default function Home() {
 
       <s-section heading="Add up to 2,048 variants to your products 🎉">
         <s-paragraph>
-          Product Variants lets you offer up to 2,048 variant combinations on a
+          Smart Variants Pro lets you offer up to 2,048 variant combinations on a
           product and display them with a custom selector on your storefront. To
-          show the selector, add the <s-text>Product Variants Widget</s-text> app
+          show the selector, add the <s-text>Smart Variants Pro Widget</s-text> app
           block to your product page in the theme editor.
         </s-paragraph>
 
@@ -98,7 +98,7 @@ export default function Home() {
           </s-list-item>
           <s-list-item>
             In the theme editor, click <s-text>Add block</s-text> in the product
-            section and choose <s-text>Product Variants Widget</s-text> under the
+            section and choose <s-text>Smart Variants Pro Widget</s-text> under the
             Apps group. Configure the layout, price, and button label, then save.
           </s-list-item>
           <s-list-item>

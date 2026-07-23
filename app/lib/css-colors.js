@@ -2,7 +2,7 @@
  * Swatch colour resolution, shared by the Customization preview.
  *
  * The storefront widget must resolve colours identically, but Liquid can't
- * import JS — so extensions/product-variants-widget/blocks/variant-selector.liquid
+ * import JS — so extensions/smart-variants-pro-widget/blocks/variant-selector.liquid
  * carries the same two lists inline. Keep the two in step when editing.
  */
 
