@@ -1,0 +1,46 @@
+{
+  "names": {
+    "product_variants_widget": "Product Variants Widget"
+  },
+  "headers": {
+    "layout": "Layout",
+    "container": "Container",
+    "controls": "Controls",
+    "advanced": "Advanced"
+  },
+  "labels": {
+    "heading": "Heading",
+    "button_label": "Add to cart button label",
+    "show_price": "Show price",
+    "show_availability": "Show availability",
+    "alignment": "Alignment",
+    "control_size": "Control size",
+    "text_scale": "Text size",
+    "spacing": "Spacing",
+    "max_width": "Maximum width",
+    "box_border_width": "Border width",
+    "box_border_color": "Border color",
+    "box_radius": "Border radius",
+    "pad_top": "Padding top",
+    "pad_right": "Padding right",
+    "pad_bottom": "Padding bottom",
+    "pad_left": "Padding left",
+    "control_radius": "Border radius",
+    "control_border_color": "Border color",
+    "heading_size": "Heading size",
+    "custom_css": "Custom CSS",
+    "gallery_image_selector": "Product image selector"
+  },
+  "info": {
+    "max_width": "Set to 0 for full width.",
+    "custom_css": "Paste CSS to fine-tune the widget. Target the widget's classes (e.g. .pv-option__value) or scope to this block with #pv-block-…",
+    "gallery_image_selector": "CSS selector for your theme's main product image, swapped when a variant with its own image is selected. Leave blank to disable."
+  },
+  "options": {
+    "alignment": {
+      "left": "Left",
+      "center": "Center",
+      "right": "Right"
+    }
+  }
+}

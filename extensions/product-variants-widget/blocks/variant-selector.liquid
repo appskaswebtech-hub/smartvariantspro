@@ -1,0 +1,493 @@
+{% if product and product.has_only_default_variant %}
+  {%- comment -%}
+    No real variants — only Shopify's implicit "Title / Default Title" option.
+    Hide the widget on the storefront; in the theme editor show a note so the
+    block stays selectable instead of vanishing.
+  {%- endcomment -%}
+  {%- if request.design_mode -%}
+    <div class="pv-variant-selector__notice" style="padding:12px;border:1px dashed #c9cccf;border-radius:8px;color:#6d7175;font-size:13px;">
+      This product has no variants, so the selector is hidden on your live store.
+    </div>
+  {%- endif -%}
+{% elsif product %}
+  {%- assign current_variant = product.selected_or_first_available_variant -%}
+
+  {%- comment -%}
+    Layout comes from the app's Customization page, published to an app-data
+    metafield. 'radio' carries over the default the removed theme-editor
+    setting used to supply, for shops that have never saved the app.
+  {%- endcomment -%}
+  {%- assign pv_settings = app.metafields.product_variants.settings.value -%}
+  {%- assign pv_layout = pv_settings.layout | default: 'radio' -%}
+  {%- if pv_layout == 'buttons' -%}
+    {%- assign pv_layout = 'radio' -%}
+  {%- endif -%}
+  {%- assign pv_accent = pv_settings.theme_color -%}
+  {%- assign pv_shop_styles = pv_settings.option_styles -%}
+  {%- assign pv_shop_content = pv_settings.option_swatch_content -%}
+
+  {%- comment -%}
+    Only an explicit false hides these: the metafield predates both keys, so
+    nil has to keep meaning "show" for shops that haven't saved since.
+  {%- endcomment -%}
+  {%- assign pv_show_qty = true -%}
+  {%- if pv_settings.show_quantity == false -%}
+    {%- assign pv_show_qty = false -%}
+  {%- endif -%}
+  {%- assign pv_show_atc = true -%}
+  {%- if pv_settings.show_add_to_cart == false -%}
+    {%- assign pv_show_atc = false -%}
+  {%- endif -%}
+
+  {%- comment -%}
+    Per-product overrides live on the product's own app-owned metafield and
+    take priority over the store-wide styles above.
+  {%- endcomment -%}
+  {%- assign pv_product_ui = product.metafields["$app"].variant_ui.value -%}
+  {%- assign pv_product_styles = pv_product_ui.option_styles -%}
+  {%- assign pv_product_content = pv_product_ui.option_swatch_content -%}
+  {%- assign pv_product_colors = pv_product_ui.option_swatch_colors -%}
+
+  {%- comment -%}
+    Swatch colours. A value named after a colour renders in that colour;
+    anything else falls back to a palette colour picked by position, so it
+    stays stable across reloads. Mirrored in app/lib/css-colors.js, which the
+    Customization preview uses — keep the two in step.
+  {%- endcomment -%}
+  {%- assign pv_css_colors = 'aliceblue,antiquewhite,aqua,aquamarine,azure,beige,bisque,black,blanchedalmond,blue,blueviolet,brown,burlywood,cadetblue,chartreuse,chocolate,coral,cornflowerblue,cornsilk,crimson,cyan,darkblue,darkcyan,darkgoldenrod,darkgray,darkgreen,darkgrey,darkkhaki,darkmagenta,darkolivegreen,darkorange,darkorchid,darkred,darksalmon,darkseagreen,darkslateblue,darkslategray,darkslategrey,darkturquoise,darkviolet,deeppink,deepskyblue,dimgray,dimgrey,dodgerblue,firebrick,floralwhite,forestgreen,fuchsia,gainsboro,ghostwhite,gold,goldenrod,gray,green,greenyellow,grey,honeydew,hotpink,indianred,indigo,ivory,khaki,lavender,lavenderblush,lawngreen,lemonchiffon,lightblue,lightcoral,lightcyan,lightgoldenrodyellow,lightgray,lightgreen,lightgrey,lightpink,lightsalmon,lightseagreen,lightskyblue,lightslategray,lightslategrey,lightsteelblue,lightyellow,lime,limegreen,linen,magenta,maroon,mediumaquamarine,mediumblue,mediumorchid,mediumpurple,mediumseagreen,mediumslateblue,mediumspringgreen,mediumturquoise,mediumvioletred,midnightblue,mintcream,mistyrose,moccasin,navajowhite,navy,oldlace,olive,olivedrab,orange,orangered,orchid,palegoldenrod,palegreen,paleturquoise,palevioletred,papayawhip,peachpuff,peru,pink,plum,powderblue,purple,rebeccapurple,red,rosybrown,royalblue,saddlebrown,salmon,sandybrown,seagreen,seashell,sienna,silver,skyblue,slateblue,slategray,slategrey,snow,springgreen,steelblue,tan,teal,thistle,tomato,turquoise,violet,wheat,white,whitesmoke,yellow,yellowgreen' | split: ',' -%}
+  {%- assign pv_palette = '#5C6AC4,#47C1BF,#F49342,#9C6ADE,#50B83C,#EEC200,#DE3618,#006FBB,#E377C2,#8C6E4B' | split: ',' -%}
+
+  {%- comment -%}
+    Sizing comes from the theme editor as CSS variables. Range values are
+    numbers Shopify has already validated, so they're safe to interpolate.
+    max_width 0 means "no limit" -- emit nothing and the CSS default stands.
+  {%- endcomment -%}
+  {%- capture pv_style -%}
+    {%- if pv_accent != blank %}--pv-accent: {{ pv_accent | escape }};{% endif -%}
+    --pv-control-size: {{ block.settings.control_size }}px;
+    --pv-text-scale: {{ block.settings.text_scale | divided_by: 100.0 }};
+    --pv-gap: {{ block.settings.spacing }}px;
+    {%- if block.settings.max_width > 0 %}--pv-max-width: {{ block.settings.max_width }}px;{% endif -%}
+    --pv-radius: {{ block.settings.control_radius }}px;
+    --pv-border: {{ block.settings.control_border_color }};
+    --pv-heading-scale: {{ block.settings.heading_size | divided_by: 100.0 }};
+    --pv-box-border-width: {{ block.settings.box_border_width }}px;
+    --pv-box-border-color: {{ block.settings.box_border_color }};
+    --pv-box-radius: {{ block.settings.box_radius }}px;
+    --pv-box-pad-top: {{ block.settings.pad_top }}px;
+    --pv-box-pad-right: {{ block.settings.pad_right }}px;
+    --pv-box-pad-bottom: {{ block.settings.pad_bottom }}px;
+    --pv-box-pad-left: {{ block.settings.pad_left }}px;
+  {%- endcapture -%}
+
+  <div
+    id="pv-block-{{ block.id }}"
+    class="pv-variant-selector pv-layout--{{ pv_layout }} pv-align--{{ block.settings.alignment }}"
+    data-pv-root
+    {% unless pv_show_atc %}data-pv-sync-theme-form{% endunless %}
+    data-pv-default-image="{{ product.featured_image | image_url: width: 1200 }}"
+    {% if block.settings.gallery_image_selector != blank %}data-pv-gallery-selector="{{ block.settings.gallery_image_selector | escape }}"{% endif %}
+    style="{{ pv_style }}"
+    {{ block.shopify_attributes }}
+  >
+    {%- if block.settings.heading != blank -%}
+      <h2 class="pv-variant-selector__heading">{{ block.settings.heading }}</h2>
+    {%- endif -%}
+
+    {% form 'product', product, class: 'pv-variant-selector__form' %}
+      <input type="hidden" name="id" data-pv-variant-id value="{{ current_variant.id }}">
+
+      <div class="pv-variant-selector__options">
+        {%- for option in product.options_with_values -%}
+          {%- assign pv_option_key = option.name | downcase -%}
+          {%- comment -%} product override > store-wide style > default layout {%- endcomment -%}
+          {%- assign pv_option_style = pv_product_styles[pv_option_key] -%}
+          {%- if pv_option_style == blank -%}
+            {%- assign pv_option_style = pv_shop_styles[pv_option_key] -%}
+          {%- endif -%}
+          {%- if pv_option_style == blank -%}
+            {%- assign pv_option_style = pv_layout -%}
+          {%- endif -%}
+          {%- if pv_option_style == 'buttons' -%}
+            {%- assign pv_option_style = 'radio' -%}
+          {%- endif -%}
+          <div class="pv-option" data-pv-option-position="{{ option.position }}">
+            <span class="pv-option__label">{{ option.name }}</span>
+
+            {%- case pv_option_style -%}
+              {%- when 'dropdown' -%}
+                <select
+                  class="pv-option__select"
+                  data-pv-option-input
+                  data-pv-option-position="{{ option.position }}"
+                >
+                  {%- for value in option.values -%}
+                    <option value="{{ value.name | escape }}"{% if value.selected %} selected{% endif %}>
+                      {{ value.name }}
+                    </option>
+                  {%- endfor -%}
+                </select>
+
+              {%- when 'radio' -%}
+                <div class="pv-option__values pv-option__values--radio" role="radiogroup" aria-label="{{ option.name | escape }}">
+                  {%- for value in option.values -%}
+                    <label class="pv-option__value pv-option__value--radio">
+                      <input
+                        type="radio"
+                        class="pv-option__radio"
+                        name="pv-option-{{ option.position }}"
+                        value="{{ value.name | escape }}"
+                        data-pv-option-input
+                        data-pv-option-position="{{ option.position }}"
+                        {% if value.selected %}checked{% endif %}
+                      >
+                      <span class="pv-option__radio-control" aria-hidden="true"></span>
+                      <span class="pv-option__value-text">{{ value.name }}</span>
+                    </label>
+                  {%- endfor -%}
+                </div>
+
+              {%- else -%}
+                {%- comment -%}
+                  What the swatch shows, per option. 'auto' means colour-only
+                  when every value is a colour name, names otherwise — decided
+                  per option so a row can't be half circles, half pills.
+                  Mirrors autoSwatchContent() in app/lib/css-colors.js.
+                {%- endcomment -%}
+                {%- comment -%} product override > store-wide > auto {%- endcomment -%}
+                {%- assign pv_content = pv_product_content[pv_option_key] | default: pv_shop_content[pv_option_key] | default: 'auto' -%}
+                {%- if pv_content == 'auto' -%}
+                  {%- assign pv_hits = 0 -%}
+                  {%- for value in option.values -%}
+                    {%- assign pv_slug = value.name | downcase | strip | remove: ' ' | remove: '-' -%}
+                    {%- if pv_css_colors contains pv_slug -%}
+                      {%- assign pv_hits = pv_hits | plus: 1 -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- if pv_hits == option.values.size -%}
+                    {%- assign pv_content = 'color' -%}
+                  {%- else -%}
+                    {%- assign pv_content = 'name' -%}
+                  {%- endif -%}
+                {%- endif -%}
+
+                <div class="pv-option__values" role="radiogroup" aria-label="{{ option.name | escape }}">
+                  {%- for value in option.values -%}
+                    {%- comment -%}
+                      Colour name wins; otherwise a palette colour by position.
+                      pv_swatch_bg can only ever hold a string from our own
+                      lists, so nothing merchant-typed reaches the style attr.
+                    {%- endcomment -%}
+                    {%- assign pv_value_color = value.name | downcase | strip | remove: ' ' | remove: '-' -%}
+                    {%- comment -%} merchant's per-value pick (validated #rrggbb on write) wins {%- endcomment -%}
+                    {%- assign pv_custom_color = pv_product_colors[pv_option_key][pv_value_color] -%}
+                    {%- if pv_css_colors contains pv_value_color -%}
+                      {%- assign pv_swatch_bg = pv_value_color -%}
+                    {%- else -%}
+                      {%- assign pv_palette_index = forloop.index0 | modulo: pv_palette.size -%}
+                      {%- assign pv_swatch_bg = pv_palette[pv_palette_index] -%}
+                    {%- endif -%}
+                    <label
+                      class="pv-option__value pv-option__value--swatch pv-option__value--content-{{ pv_content }}"
+                      {% if pv_content == 'color' %}title="{{ value.name | escape }}"{% endif %}
+                    >
+                      <input
+                        type="radio"
+                        class="pv-option__radio"
+                        name="pv-option-{{ option.position }}"
+                        value="{{ value.name | escape }}"
+                        data-pv-option-input
+                        data-pv-option-position="{{ option.position }}"
+                        {% if value.selected %}checked{% endif %}
+                      >
+                      {%- if pv_content == 'color' -%}
+                        {%- if pv_custom_color != blank -%}
+                          <span class="pv-option__swatch" style="background-color: {{ pv_custom_color }}"></span>
+                        {%- elsif value.swatch.image -%}
+                          <span class="pv-option__swatch" style="background-image: url({{ value.swatch.image | image_url: width: 60 }})"></span>
+                        {%- elsif value.swatch.color -%}
+                          <span class="pv-option__swatch" style="background-color: {{ value.swatch.color }}"></span>
+                        {%- else -%}
+                          <span class="pv-option__swatch" style="background-color: {{ pv_swatch_bg }}"></span>
+                        {%- endif -%}
+                      {%- endif -%}
+                      {%- comment -%}
+                        Always rendered: hidden for 'color' so the swatch is
+                        never an unlabelled dot to a screen reader.
+                      {%- endcomment -%}
+                      <span class="pv-option__value-text{% if pv_content == 'color' %} pv-option__value-text--hidden{% endif %}">{{ value.name }}</span>
+                    </label>
+                  {%- endfor -%}
+                </div>
+            {%- endcase -%}
+          </div>
+        {%- endfor -%}
+      </div>
+
+      {%- if block.settings.show_price -%}
+        <div class="pv-variant-selector__price" data-pv-price>{{ current_variant.price | money }}</div>
+      {%- endif -%}
+
+      {%- if block.settings.show_availability -%}
+        <div class="pv-variant-selector__availability" data-pv-availability>
+          {%- if current_variant.available -%}In stock{%- else -%}Sold out{%- endif -%}
+        </div>
+      {%- endif -%}
+
+      {%- if pv_show_qty -%}
+        <div class="pv-variant-selector__quantity">
+          <label for="pv-quantity-{{ block.id }}">Quantity</label>
+          <input type="number" id="pv-quantity-{{ block.id }}" name="quantity" value="1" min="1">
+        </div>
+      {%- endif -%}
+
+      {%- if pv_show_atc -%}
+        <button
+          type="submit"
+          class="pv-variant-selector__submit"
+          data-pv-submit
+          data-pv-button-label="{{ block.settings.button_label | escape }}"
+          {% unless current_variant.available %}disabled{% endunless %}
+        >
+          <span data-pv-submit-text>
+            {%- if current_variant.available -%}{{ block.settings.button_label }}{%- else -%}Sold out{%- endif -%}
+          </span>
+        </button>
+      {%- endif -%}
+
+      <script type="application/json" data-pv-variants>
+        [
+          {%- for variant in product.variants -%}
+            {
+              "id": {{ variant.id }},
+              "options": {{ variant.options | json }},
+              "available": {{ variant.available }},
+              "price": {{ variant.price | money | json }},
+              "image": {{ variant.image | image_url: width: 1200 | json }}
+            }{%- unless forloop.last -%},{%- endunless -%}
+          {%- endfor -%}
+        ]
+      </script>
+    {% endform %}
+  </div>
+
+  {%- if block.settings.custom_css != blank -%}
+    {%- comment -%}
+      Raw CSS authored by the store owner in the theme editor (trusted), so it
+      is output literally — escaping would corrupt selectors. Inline here, after
+      the linked variant-selector.css, so merchant rules win at equal
+      specificity. #pv-block-{{ block.id }} is available for per-instance scoping.
+    {%- endcomment -%}
+    <style>
+      {{ block.settings.custom_css }}
+    </style>
+  {%- endif -%}
+{% endif %}
+
+{% schema %}
+{
+  "name": "t:names.product_variants_widget",
+  "target": "section",
+  "stylesheet": "variant-selector.css",
+  "javascript": "variant-selector.js",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "t:labels.heading",
+      "default": "Choose your options"
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "t:labels.button_label",
+      "default": "Add to cart"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_price",
+      "label": "t:labels.show_price",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_availability",
+      "label": "t:labels.show_availability",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "t:headers.layout"
+    },
+    {
+      "type": "select",
+      "id": "alignment",
+      "label": "t:labels.alignment",
+      "options": [
+        { "value": "left", "label": "t:options.alignment.left" },
+        { "value": "center", "label": "t:options.alignment.center" },
+        { "value": "right", "label": "t:options.alignment.right" }
+      ],
+      "default": "left"
+    },
+    {
+      "type": "range",
+      "id": "control_size",
+      "label": "t:labels.control_size",
+      "min": 20,
+      "max": 56,
+      "step": 4,
+      "unit": "px",
+      "default": 32
+    },
+    {
+      "type": "range",
+      "id": "text_scale",
+      "label": "t:labels.text_scale",
+      "min": 80,
+      "max": 140,
+      "step": 5,
+      "unit": "%",
+      "default": 100
+    },
+    {
+      "type": "range",
+      "id": "spacing",
+      "label": "t:labels.spacing",
+      "min": 4,
+      "max": 32,
+      "step": 2,
+      "unit": "px",
+      "default": 12
+    },
+    {
+      "type": "range",
+      "id": "max_width",
+      "label": "t:labels.max_width",
+      "info": "t:info.max_width",
+      "min": 0,
+      "max": 800,
+      "step": 20,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "header",
+      "content": "t:headers.container"
+    },
+    {
+      "type": "range",
+      "id": "box_border_width",
+      "label": "t:labels.box_border_width",
+      "min": 0,
+      "max": 8,
+      "step": 1,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "color",
+      "id": "box_border_color",
+      "label": "t:labels.box_border_color",
+      "default": "#dcdcdc"
+    },
+    {
+      "type": "range",
+      "id": "box_radius",
+      "label": "t:labels.box_radius",
+      "min": 0,
+      "max": 40,
+      "step": 2,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "range",
+      "id": "pad_top",
+      "label": "t:labels.pad_top",
+      "min": 0,
+      "max": 60,
+      "step": 2,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "range",
+      "id": "pad_right",
+      "label": "t:labels.pad_right",
+      "min": 0,
+      "max": 60,
+      "step": 2,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "range",
+      "id": "pad_bottom",
+      "label": "t:labels.pad_bottom",
+      "min": 0,
+      "max": 60,
+      "step": 2,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "range",
+      "id": "pad_left",
+      "label": "t:labels.pad_left",
+      "min": 0,
+      "max": 60,
+      "step": 2,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "header",
+      "content": "t:headers.controls"
+    },
+    {
+      "type": "range",
+      "id": "control_radius",
+      "label": "t:labels.control_radius",
+      "min": 0,
+      "max": 40,
+      "step": 2,
+      "unit": "px",
+      "default": 8
+    },
+    {
+      "type": "color",
+      "id": "control_border_color",
+      "label": "t:labels.control_border_color",
+      "default": "#dcdcdc"
+    },
+    {
+      "type": "range",
+      "id": "heading_size",
+      "label": "t:labels.heading_size",
+      "min": 80,
+      "max": 200,
+      "step": 5,
+      "unit": "%",
+      "default": 110
+    },
+    {
+      "type": "header",
+      "content": "t:headers.advanced"
+    },
+    {
+      "type": "textarea",
+      "id": "custom_css",
+      "label": "t:labels.custom_css",
+      "info": "t:info.custom_css"
+    },
+    {
+      "type": "text",
+      "id": "gallery_image_selector",
+      "label": "t:labels.gallery_image_selector",
+      "info": "t:info.gallery_image_selector",
+      "default": ".product__media img, .product-single__photo img, product-media img"
+    }
+  ]
+}
+{% endschema %}

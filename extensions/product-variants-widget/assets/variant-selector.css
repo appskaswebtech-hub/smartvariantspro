@@ -1,0 +1,278 @@
+.pv-variant-selector {
+  /* --pv-accent comes from the app's Customization settings; the sizing
+     variables come from the theme editor. Defaults here reproduce the
+     original hardcoded design, so the CSS still stands alone uninjected. */
+  --pv-accent: #111111;
+  --pv-border: #dcdcdc;
+  --pv-border-active: var(--pv-accent);
+  --pv-radius: 8px;
+  --pv-gap: 12px;
+  --pv-control-size: 32px;
+  --pv-text-scale: 1;
+  /* 1em is the inherited size, so 100% leaves the theme's text untouched. */
+  font-size: calc(1em * var(--pv-text-scale));
+  display: grid;
+  gap: calc(var(--pv-gap) + 4px);
+  margin: 16px 0;
+  max-width: var(--pv-max-width, none);
+  /* Container box. Defaults keep it invisible: 0 width, 0 padding. */
+  border: var(--pv-box-border-width, 0) solid var(--pv-box-border-color, transparent);
+  border-radius: var(--pv-box-radius, 0);
+  padding: var(--pv-box-pad-top, 0) var(--pv-box-pad-right, 0)
+    var(--pv-box-pad-bottom, 0) var(--pv-box-pad-left, 0);
+}
+
+.pv-variant-selector__heading {
+  margin: 0;
+  /* 1.1 default reproduces the previous fixed 1.1em. */
+  font-size: calc(var(--pv-heading-scale, 1.1) * 1em);
+  font-weight: 600;
+}
+
+.pv-variant-selector__options {
+  display: grid;
+  gap: calc(var(--pv-gap) + 4px);
+}
+
+.pv-option__label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.pv-option__values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-gap);
+}
+
+.pv-option__value {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.pv-option__radio {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.pv-option__value:has(.pv-option__radio:checked) {
+  border-color: var(--pv-border-active);
+  box-shadow: 0 0 0 1px var(--pv-border-active) inset;
+}
+
+.pv-option__value:has(.pv-option__radio:focus-visible) {
+  outline: 2px solid var(--pv-border-active);
+  outline-offset: 2px;
+}
+
+.pv-option__value--swatch {
+  padding: 6px 10px;
+}
+
+/* Colour only: the circle is the control, name shown via the title tooltip. */
+.pv-option__value--content-color {
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.pv-option__value--content-color .pv-option__swatch {
+  width: var(--pv-control-size);
+  height: var(--pv-control-size);
+}
+
+/* An inset shadow makes no sense on a bare circle -- ring it instead. */
+.pv-option__value--content-color:has(.pv-option__radio:checked) {
+  border-color: transparent;
+  box-shadow: none;
+  outline: 2px solid var(--pv-accent);
+  outline-offset: 2px;
+}
+
+/* Name inside: a circle for short values that stretches into a pill for
+   longer ones, so nothing is clipped. */
+/* 1.25 x 32px = the original 40px. */
+.pv-option__value--content-name {
+  height: calc(var(--pv-control-size) * 1.25);
+  min-width: calc(var(--pv-control-size) * 1.25);
+  padding: 0 12px;
+  border-radius: 999px;
+  justify-content: center;
+}
+
+.pv-option__value--content-name .pv-option__swatch,
+.pv-option__value--content-text .pv-option__swatch {
+  display: none;
+}
+
+.pv-option__value-text--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.pv-option__values--radio {
+  flex-direction: column;
+  gap: calc(var(--pv-gap) - 2px);
+}
+
+.pv-option__value--radio {
+  border: none;
+  padding: 0;
+}
+
+.pv-option__value--radio:has(.pv-option__radio:checked) {
+  border: none;
+  box-shadow: none;
+}
+
+.pv-option__value--radio:has(.pv-option__radio:focus-visible) {
+  outline: none;
+}
+
+/* 0.5625 x 32px = the original 18px, so the radio scales with the swatches. */
+.pv-option__radio-control {
+  position: relative;
+  display: inline-block;
+  width: calc(var(--pv-control-size) * 0.5625);
+  height: calc(var(--pv-control-size) * 0.5625);
+  flex-shrink: 0;
+  border: 2px solid var(--pv-border);
+  border-radius: 50%;
+  transition: border-color 0.15s ease;
+}
+
+.pv-option__radio:checked + .pv-option__radio-control {
+  border-color: var(--pv-accent);
+}
+
+.pv-option__radio:checked + .pv-option__radio-control::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--pv-accent);
+}
+
+.pv-option__radio:focus-visible + .pv-option__radio-control {
+  outline: 2px solid var(--pv-accent);
+  outline-offset: 2px;
+}
+
+.pv-option__swatch {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--pv-border);
+  background-size: cover;
+  background-position: center;
+}
+
+/* min-height keeps the dropdown in step with the swatches and radios. */
+.pv-option__select {
+  width: 100%;
+  max-width: 320px;
+  min-height: calc(var(--pv-control-size) * 1.25);
+  padding: 10px 12px;
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius);
+  background: transparent;
+  font-size: inherit;
+}
+
+.pv-variant-selector__price {
+  font-size: 1.25em;
+  font-weight: 700;
+}
+
+.pv-variant-selector__availability {
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+.pv-variant-selector__quantity {
+  display: grid;
+  gap: 6px;
+  max-width: 120px;
+}
+
+.pv-variant-selector__quantity input {
+  padding: 8px 10px;
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius);
+}
+
+.pv-variant-selector__submit {
+  padding: 12px 20px;
+  border: none;
+  border-radius: var(--pv-radius);
+  background: var(--pv-border-active);
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pv-variant-selector__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Alignment. .pv-align--left is the default and deliberately has no rules, so
+   an untouched block renders exactly as before. The root is a grid, so its
+   direct children need justify-self -- text-align alone would leave the
+   button and quantity stretched across the full width. */
+.pv-align--center {
+  text-align: center;
+}
+
+.pv-align--center .pv-option__values {
+  justify-content: center;
+}
+
+.pv-align--center .pv-option__values--radio {
+  align-items: center;
+}
+
+.pv-align--center .pv-variant-selector__submit,
+.pv-align--center .pv-variant-selector__quantity {
+  justify-self: center;
+}
+
+.pv-align--center .pv-option__select {
+  margin-inline: auto;
+}
+
+.pv-align--right {
+  text-align: right;
+}
+
+.pv-align--right .pv-option__values {
+  justify-content: flex-end;
+}
+
+.pv-align--right .pv-option__values--radio {
+  align-items: flex-end;
+}
+
+.pv-align--right .pv-variant-selector__submit,
+.pv-align--right .pv-variant-selector__quantity {
+  justify-self: end;
+}
+
+.pv-align--right .pv-option__select {
+  margin-inline-start: auto;
+}
