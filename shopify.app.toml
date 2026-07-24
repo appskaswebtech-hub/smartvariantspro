@@ -2,12 +2,11 @@
 
 client_id = "859f9b23b6088502bb94a5ffc9890d21"
 name = "Smart Variants Pro"
-application_url = "https://example.com"
+application_url = "https://smartvariants.kaswebtechsolutions.com"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
 api_version = "2026-10"
@@ -25,7 +24,7 @@ api_version = "2026-10"
 scopes = "write_products,write_metaobjects,write_metaobject_definitions"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://smartvariants.kaswebtechsolutions.com/api/auth" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
