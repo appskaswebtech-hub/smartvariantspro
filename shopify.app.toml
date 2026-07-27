@@ -2,6 +2,7 @@
 
 client_id = "859f9b23b6088502bb94a5ffc9890d21"
 name = "Smart Variants Pro"
+handle = "smart-variants-pro"
 application_url = "https://smartvariants.kaswebtechsolutions.com"
 embedded = true
 

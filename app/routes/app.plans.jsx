@@ -1,6 +1,7 @@
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { getActivePlan, managedPricingUrl } from "../models/billing.server";
 import { ACCENTS, PageHero } from "../components/PageDecor";
 import { Rocket } from "../components/icons";
 
@@ -17,7 +18,7 @@ const PLANS = [
       "Buttons, dropdown & swatches layouts",
       "Community support",
     ],
-    cta: "Current plan",
+    cta: "Downgrade to Free",
     recommended: false,
   },
   {
@@ -53,14 +54,21 @@ const PLANS = [
 ];
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
-  // Hardcoded for now; billing wiring comes in a later milestone.
-  return { plans: PLANS, currentPlan: "free" };
+  // Read the live subscription from Shopify. Managed Pricing handles the
+  // checkout/upgrade/downgrade flow, so there is no local billing state.
+  const currentPlan = await getActivePlan(admin);
+
+  return {
+    plans: PLANS,
+    currentPlan,
+    pricingUrl: managedPricingUrl(session.shop),
+  };
 };
 
 export default function Plans() {
-  const { plans, currentPlan } = useLoaderData();
+  const { plans, currentPlan, pricingUrl } = useLoaderData();
 
   return (
     <s-page heading="Plans">
@@ -74,8 +82,8 @@ export default function Plans() {
 
       <s-section heading="Choose the plan that fits your store">
         <s-paragraph>
-          Upgrade any time. Prices are placeholders while checkout is being set
-          up — selecting a paid plan doesn&apos;t charge you yet.
+          Upgrade or downgrade any time. Choosing a plan opens Shopify&apos;s
+          secure checkout, and charges appear on your regular Shopify invoice.
         </s-paragraph>
 
         <s-grid
@@ -84,7 +92,7 @@ export default function Plans() {
           paddingBlockStart="base"
         >
           {plans.map((plan) => {
-            const isCurrent = plan.id === currentPlan;
+            const isCurrent = plan.name === currentPlan;
             return (
               <s-box
                 key={plan.id}
@@ -119,6 +127,8 @@ export default function Plans() {
                   </s-unordered-list>
 
                   <s-button
+                    href={isCurrent ? undefined : pricingUrl}
+                    target={isCurrent ? undefined : "_top"}
                     variant={plan.recommended ? "primary" : "secondary"}
                     disabled={isCurrent}
                   >
@@ -133,8 +143,9 @@ export default function Plans() {
 
       <s-section slot="aside" heading="Billing">
         <s-paragraph>
-          Plans will be handled through Shopify billing, so charges appear on
-          your regular Shopify invoice. Nothing is charged during this preview.
+          Billing is handled by Shopify, so charges appear on your regular
+          Shopify invoice. You can change or cancel your plan any time from the
+          plan selection page.
         </s-paragraph>
       </s-section>
     </s-page>
