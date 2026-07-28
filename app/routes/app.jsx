@@ -19,7 +19,7 @@ export default function App() {
         <s-link href="/app/home">Home</s-link>
         <s-link href="/app/variants">Products</s-link>
         <s-link href="/app/customization">Customization</s-link>
-        <s-link href="/app/plans">Plans</s-link>
+        {/* <s-link href="/app/plans">Plans</s-link> */}
         <s-link href="/app/settings">Settings</s-link>
         <s-link href="/app/help">Help</s-link>
       </s-app-nav>

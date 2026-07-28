@@ -92,7 +92,10 @@ export default function Plans() {
           paddingBlockStart="base"
         >
           {plans.map((plan) => {
-            const isCurrent = plan.name === currentPlan;
+            // Shopify may return the plan by display name ("Pro") or handle
+            // ("pro"), so compare case-insensitively.
+            const isCurrent =
+              plan.name.toLowerCase() === currentPlan.toLowerCase();
             return (
               <s-box
                 key={plan.id}
