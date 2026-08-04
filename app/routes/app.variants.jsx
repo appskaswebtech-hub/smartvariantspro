@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import { useEffect, useState } from "react";
 import {
   useFetcher,
@@ -14,6 +15,21 @@ import {
   clearVariantImage,
   uploadProductImage,
 } from "../models/variant-media.server";
+import {
+  bulkUpdateVariants,
+  deleteVariants,
+  addImageToVariants,
+  removeImageFromVariants,
+  removeVariantImagesByIds,
+  resolveProductVariantIds,
+  listPublications,
+  setProductPublishing,
+} from "../models/variant-bulk.server";
+import {
+  setVariantQuantities,
+  setVariantQuantitiesByOptions,
+} from "../models/inventory.server";
+import { COUNTRIES } from "../lib/countries";
 import { ACCENTS, PageHero, withAlpha } from "../components/PageDecor";
 import { Layers } from "../components/icons";
 import { resolveSwatchColor, SWATCH_PALETTE } from "../lib/css-colors";
@@ -63,6 +79,14 @@ const PRODUCT_QUERY = `#graphql
           title
           price
           sku
+          barcode
+          inventoryPolicy
+          inventoryQuantity
+          inventoryItem {
+            countryCodeOfOrigin
+            requiresShipping
+            measurement { weight { value unit } }
+          }
           selectedOptions { name value }
           media(first: 1) {
             nodes { id ... on MediaImage { image { url } } }
@@ -129,10 +153,12 @@ export const loader = async ({ request }) => {
     const response = await admin.graphql(PRODUCT_LIST_QUERY, { variables });
     const json = await response.json();
     const products = json.data?.products;
+    const publications = await listPublications(admin).catch(() => []);
 
     return {
       shop: session.shop,
       product: null,
+      publications,
       productList: {
         items: products?.nodes ?? [],
         pageInfo: products?.pageInfo ?? null,
@@ -172,7 +198,10 @@ export const loader = async ({ request }) => {
     };
   }
 
-  return { shop: session.shop, product };
+  // Sales channels for the "Manage publishing" bulk action.
+  const publications = await listPublications(admin).catch(() => []);
+
+  return { shop: session.shop, product, publications };
 };
 
 export const action = async ({ request }) => {
@@ -225,6 +254,296 @@ export const action = async ({ request }) => {
     }
   }
 
+  // Inline-quantity sync after a Save: keyed by option combo so it applies to
+  // brand-new variants too. Fired by the client once the variants exist.
+  if (intent === "syncStock") {
+    let quantitiesByKey;
+    try {
+      quantitiesByKey = JSON.parse(String(formData.get("quantities") || "{}"));
+    } catch {
+      return { intent, ok: false, userErrors: [{ message: "Invalid data." }] };
+    }
+    try {
+      const { userErrors } = await setVariantQuantitiesByOptions(admin, {
+        productId,
+        quantitiesByKey,
+      });
+      return { intent, ok: userErrors.length === 0, userErrors };
+    } catch (error) {
+      console.error("Stock sync failed", error);
+      return { intent, ok: false, userErrors: [{ message: error.message || "Stock sync failed." }] };
+    }
+  }
+
+  // --- Bulk actions on selected (already-saved) variants ---
+  if (intent === "bulkUpdate") {
+    const field = String(formData.get("field") || "");
+    let entries;
+    try {
+      entries = JSON.parse(String(formData.get("entries") || "[]"));
+    } catch {
+      return { intent, ok: false, userErrors: [{ message: "Invalid data." }] };
+    }
+    if (!productId || !field || entries.length === 0) {
+      return { intent, ok: false, userErrors: [{ message: "Nothing to update." }] };
+    }
+    const { userErrors } = await bulkUpdateVariants(admin, {
+      productId,
+      field,
+      entries,
+    });
+    return { intent, ok: userErrors.length === 0, userErrors };
+  }
+
+  if (intent === "bulkDelete") {
+    const variantIds = JSON.parse(String(formData.get("variantIds") || "[]"));
+    if (!productId || variantIds.length === 0) {
+      return { intent, ok: false, userErrors: [{ message: "No variants selected." }] };
+    }
+    const { userErrors } = await deleteVariants(admin, { productId, variantIds });
+    return { intent, ok: userErrors.length === 0, userErrors };
+  }
+
+  if (intent === "bulkStock") {
+    let quantitiesByVariantId;
+    try {
+      quantitiesByVariantId = JSON.parse(String(formData.get("quantities") || "{}"));
+    } catch {
+      return { intent, ok: false, userErrors: [{ message: "Invalid data." }] };
+    }
+    if (Object.keys(quantitiesByVariantId).length === 0) {
+      return { intent, ok: false, userErrors: [{ message: "No variants selected." }] };
+    }
+    try {
+      const { userErrors } = await setVariantQuantities(admin, {
+        quantitiesByVariantId,
+      });
+      return { intent, ok: userErrors.length === 0, userErrors };
+    } catch (error) {
+      console.error("Bulk stock update failed", error);
+      return { intent, ok: false, userErrors: [{ message: error.message || "Stock update failed." }] };
+    }
+  }
+
+  if (intent === "bulkAddImage") {
+    const variantIds = JSON.parse(String(formData.get("variantIds") || "[]"));
+    const file = formData.get("file");
+    if (!productId || variantIds.length === 0 || typeof file === "string" || !file) {
+      return { intent, ok: false, error: "Missing image or selection." };
+    }
+    try {
+      await addImageToVariants(admin, {
+        productId,
+        variantIds,
+        filename: file.name || "variant-image",
+        mimeType: file.type || "image/jpeg",
+        fileSize: file.size,
+        bytes: await file.arrayBuffer(),
+      });
+      return { intent, ok: true };
+    } catch (error) {
+      console.error("Bulk image add failed", error);
+      return { intent, ok: false, error: "Image upload failed." };
+    }
+  }
+
+  if (intent === "bulkRemoveImage") {
+    let variantMedia;
+    try {
+      variantMedia = JSON.parse(String(formData.get("variants") || "[]"));
+    } catch {
+      return { intent, ok: false, error: "Invalid data." };
+    }
+    try {
+      await removeImageFromVariants(admin, { productId, variants: variantMedia });
+      return { intent, ok: true };
+    } catch (error) {
+      console.error("Bulk image remove failed", error);
+      return { intent, ok: false, error: "Image removal failed." };
+    }
+  }
+
+  if (intent === "bulkPublish") {
+    const publicationIds = JSON.parse(String(formData.get("publicationIds") || "[]"));
+    const publish = String(formData.get("publish") || "true") === "true";
+    if (!productId || publicationIds.length === 0) {
+      return { intent, ok: false, userErrors: [{ message: "No channels selected." }] };
+    }
+    const { userErrors } = await setProductPublishing(admin, {
+      productId,
+      publicationIds,
+      publish,
+    });
+    return { intent, ok: userErrors.length === 0, userErrors };
+  }
+
+  // --- Browse-list bulk actions (a selection can span many products) ---
+  // A group is { productId, variantIds: [ids] | "all" }; "all" is resolved here.
+  const resolveGroupIds = async (group) =>
+    group.variantIds === "all"
+      ? await resolveProductVariantIds(admin, group.productId)
+      : group.variantIds;
+
+  if (intent === "listBulkField") {
+    const field = String(formData.get("field") || "");
+    let value;
+    let groups;
+    try {
+      value = JSON.parse(String(formData.get("value") ?? "null"));
+      groups = JSON.parse(String(formData.get("groups") || "[]"));
+    } catch {
+      return { intent, ok: false, userErrors: [{ message: "Invalid data." }] };
+    }
+    const userErrors = [];
+    for (const group of groups) {
+      const ids = await resolveGroupIds(group);
+      if (ids.length === 0) continue;
+      const entries = ids.map((id) => ({ id, value }));
+      const res = await bulkUpdateVariants(admin, {
+        productId: group.productId,
+        field,
+        entries,
+      });
+      userErrors.push(...res.userErrors);
+    }
+    return { intent, ok: userErrors.length === 0, userErrors };
+  }
+
+  if (intent === "listBulkStock") {
+    const qty = Math.max(0, Math.trunc(Number(formData.get("value"))));
+    let groups;
+    try {
+      groups = JSON.parse(String(formData.get("groups") || "[]"));
+    } catch {
+      return { intent, ok: false, userErrors: [{ message: "Invalid data." }] };
+    }
+    const userErrors = [];
+    try {
+      for (const group of groups) {
+        const ids = await resolveGroupIds(group);
+        if (ids.length === 0) continue;
+        const quantitiesByVariantId = Object.fromEntries(ids.map((id) => [id, qty]));
+        const res = await setVariantQuantities(admin, { quantitiesByVariantId });
+        userErrors.push(...res.userErrors);
+      }
+    } catch (error) {
+      console.error("List bulk stock failed", error);
+      return { intent, ok: false, userErrors: [{ message: error.message || "Stock update failed." }] };
+    }
+    return { intent, ok: userErrors.length === 0, userErrors };
+  }
+
+  if (intent === "listBulkDelete") {
+    let groups;
+    try {
+      groups = JSON.parse(String(formData.get("groups") || "[]"));
+    } catch {
+      return { intent, ok: false, userErrors: [{ message: "Invalid data." }] };
+    }
+    const userErrors = [];
+    let skipped = 0;
+    for (const group of groups) {
+      // A whole-product selection would delete every variant, which Shopify
+      // forbids (a product must keep at least one). Skip those.
+      if (group.variantIds === "all") {
+        skipped += 1;
+        continue;
+      }
+      if (group.variantIds.length === 0) continue;
+      const res = await deleteVariants(admin, {
+        productId: group.productId,
+        variantIds: group.variantIds,
+      });
+      userErrors.push(...res.userErrors);
+    }
+    if (skipped > 0) {
+      userErrors.push({
+        message: `Skipped ${skipped} fully-selected product(s) — a product must keep at least one variant.`,
+      });
+    }
+    return { intent, ok: userErrors.length === 0, userErrors };
+  }
+
+  if (intent === "listBulkAddImage") {
+    const file = formData.get("file");
+    let groups;
+    try {
+      groups = JSON.parse(String(formData.get("groups") || "[]"));
+    } catch {
+      return { intent, ok: false, error: "Invalid data." };
+    }
+    if (typeof file === "string" || !file) {
+      return { intent, ok: false, error: "Missing image." };
+    }
+    try {
+      const bytes = await file.arrayBuffer();
+      for (const group of groups) {
+        const ids = await resolveGroupIds(group);
+        if (ids.length === 0) continue;
+        await addImageToVariants(admin, {
+          productId: group.productId,
+          variantIds: ids,
+          filename: file.name || "variant-image",
+          mimeType: file.type || "image/jpeg",
+          fileSize: file.size,
+          bytes,
+        });
+      }
+      return { intent, ok: true };
+    } catch (error) {
+      console.error("List bulk add image failed", error);
+      return { intent, ok: false, error: "Image upload failed." };
+    }
+  }
+
+  if (intent === "listBulkRemoveImage") {
+    let groups;
+    try {
+      groups = JSON.parse(String(formData.get("groups") || "[]"));
+    } catch {
+      return { intent, ok: false, error: "Invalid data." };
+    }
+    try {
+      for (const group of groups) {
+        const ids = await resolveGroupIds(group);
+        if (ids.length === 0) continue;
+        await removeVariantImagesByIds(admin, {
+          productId: group.productId,
+          variantIds: ids,
+        });
+      }
+      return { intent, ok: true };
+    } catch (error) {
+      console.error("List bulk remove image failed", error);
+      return { intent, ok: false, error: "Image removal failed." };
+    }
+  }
+
+  if (intent === "listBulkPublish") {
+    let productIds;
+    let publicationIds;
+    try {
+      productIds = JSON.parse(String(formData.get("productIds") || "[]"));
+      publicationIds = JSON.parse(String(formData.get("publicationIds") || "[]"));
+    } catch {
+      return { intent, ok: false, userErrors: [{ message: "Invalid data." }] };
+    }
+    const publish = String(formData.get("publish") || "true") === "true";
+    if (productIds.length === 0 || publicationIds.length === 0) {
+      return { intent, ok: false, userErrors: [{ message: "Nothing selected." }] };
+    }
+    const userErrors = [];
+    for (const productId of productIds) {
+      const res = await setProductPublishing(admin, {
+        productId,
+        publicationIds,
+        publish,
+      });
+      userErrors.push(...res.userErrors);
+    }
+    return { intent, ok: userErrors.length === 0, userErrors };
+  }
+
   let payload;
   try {
     payload = JSON.parse(String(formData.get("payload") || "{}"));
@@ -248,7 +567,12 @@ export const action = async ({ request }) => {
         name,
       })),
       price: variant.price ? String(variant.price) : "0",
-      ...(variant.sku ? { sku: variant.sku } : {}),
+      // Track inventory so stock quantities can be set, and carry the SKU on
+      // the inventory item (its home in the current API).
+      inventoryItem: {
+        tracked: true,
+        ...(variant.sku ? { sku: variant.sku } : {}),
+      },
     })),
   };
 
@@ -300,12 +624,417 @@ function parseMoney(raw) {
   return Number.isFinite(num) && num >= 0 ? num.toFixed(2) : null;
 }
 
+const WEIGHT_UNITS = ["GRAMS", "KILOGRAMS", "OUNCES", "POUNDS"];
+
+// Bulk actions shown in the "…" menu, mirroring Shopify's native variant menu.
+const BULK_ACTIONS = [
+  { id: "price", label: "Edit prices" },
+  { id: "sku", label: "Edit SKUs" },
+  { id: "stock", label: "Edit stock" },
+  { id: "barcode", label: "Edit barcodes" },
+  { id: "weight", label: "Edit weight" },
+  { id: "package", label: "Edit package" },
+  { id: "country", label: "Edit country/region of origin" },
+  { id: "addImage", label: "Add images" },
+  { id: "removeImage", label: "Remove images" },
+  { id: "publish", label: "Manage publishing" },
+  { id: "continueSelling", label: "Continue selling when out of stock" },
+  { id: "stopSelling", label: "Stop selling when out of stock" },
+  { id: "delete", label: "Delete variants" },
+];
+
+const BULK_TITLES = Object.fromEntries(BULK_ACTIONS.map((a) => [a.id, a.label]));
+
+/**
+ * Modal for a single bulk action. Collects the action's inputs, then calls
+ * onApply({ fields, encType }) with the FormData fields for the route intent.
+ * Each variant in `selected` is already saved (has an id).
+ */
+function BulkModal({ action, selected, count: countProp, publications, onApply, onClose, busy, listMode }) {
+  const [text, setText] = useState("");
+  const [num, setNum] = useState("");
+  const [priceMode, setPriceMode] = useState("set"); // set | amount | percent
+  const [unit, setUnit] = useState("GRAMS");
+  const [requiresShipping, setRequiresShipping] = useState(true);
+  const [file, setFile] = useState(null);
+  const [pubIds, setPubIds] = useState(() => new Set());
+
+  const count = typeof countProp === "number" ? countProp : selected.length;
+  const ids = selected.map((v) => v.id);
+
+  const same = (field, value) =>
+    ids.map((id) => ({ id, value }));
+
+  const apply = () => {
+    switch (action) {
+      case "price": {
+        const amount = Number(num);
+        if (!Number.isFinite(amount)) return;
+        const entries = selected.map((v) => {
+          const current = Number(v.price) || 0;
+          let next = amount;
+          if (priceMode === "amount") next = current + amount;
+          else if (priceMode === "percent") next = current * (1 + amount / 100);
+          return { id: v.id, value: Math.max(0, next).toFixed(2) };
+        });
+        onApply({ fields: { intent: "bulkUpdate", field: "price", entries: JSON.stringify(entries) } });
+        return;
+      }
+      case "sku":
+        onApply({ fields: { intent: "bulkUpdate", field: "sku", entries: JSON.stringify(same("sku", text)) } });
+        return;
+      case "barcode":
+        onApply({ fields: { intent: "bulkUpdate", field: "barcode", entries: JSON.stringify(same("barcode", text)) } });
+        return;
+      case "stock": {
+        const qty = Math.max(0, Math.trunc(Number(num)));
+        if (!Number.isFinite(qty)) return;
+        const quantities = Object.fromEntries(ids.map((id) => [id, qty]));
+        onApply({ fields: { intent: "bulkStock", quantities: JSON.stringify(quantities) } });
+        return;
+      }
+      case "weight": {
+        const value = Number(num);
+        if (!Number.isFinite(value)) return;
+        onApply({ fields: { intent: "bulkUpdate", field: "weight", entries: JSON.stringify(same("weight", { value, unit })) } });
+        return;
+      }
+      case "package": {
+        const value = { requiresShipping };
+        const w = Number(num);
+        if (Number.isFinite(w) && num !== "") value.weight = { value: w, unit };
+        onApply({ fields: { intent: "bulkUpdate", field: "package", entries: JSON.stringify(same("package", value)) } });
+        return;
+      }
+      case "country":
+        onApply({ fields: { intent: "bulkUpdate", field: "country", entries: JSON.stringify(same("country", text)) } });
+        return;
+      case "continueSelling":
+        onApply({ fields: { intent: "bulkUpdate", field: "inventoryPolicy", entries: JSON.stringify(same("inventoryPolicy", "CONTINUE")) } });
+        return;
+      case "stopSelling":
+        onApply({ fields: { intent: "bulkUpdate", field: "inventoryPolicy", entries: JSON.stringify(same("inventoryPolicy", "DENY")) } });
+        return;
+      case "delete":
+        onApply({ fields: { intent: "bulkDelete", variantIds: JSON.stringify(ids) } });
+        return;
+      case "removeImage":
+        onApply({
+          fields: {
+            intent: "bulkRemoveImage",
+            variants: JSON.stringify(
+              selected.map((v) => ({ variantId: v.id, mediaId: v.mediaId })),
+            ),
+          },
+        });
+        return;
+      case "addImage": {
+        if (!file) return;
+        onApply({
+          fields: { intent: "bulkAddImage", variantIds: JSON.stringify(ids), file },
+          encType: "multipart/form-data",
+        });
+        return;
+      }
+      case "publish": {
+        if (pubIds.size === 0) return;
+        onApply({
+          fields: {
+            intent: "bulkPublish",
+            publicationIds: JSON.stringify([...pubIds]),
+            publish: "true",
+          },
+        });
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
+  const applyUnpublish = () => {
+    onApply({
+      fields: {
+        intent: "bulkPublish",
+        publicationIds: JSON.stringify([...pubIds]),
+        publish: "false",
+      },
+    });
+  };
+
+  // In list mode a selection spans many products, so the modal returns the raw
+  // action + uniform value; the list view packages it with the selection groups.
+  const listApply = (publishFlag = true) => {
+    switch (action) {
+      case "price": {
+        const v = Number(num);
+        if (!Number.isFinite(v)) return;
+        onApply({ list: { action: "price", value: Math.max(0, v).toFixed(2) } });
+        return;
+      }
+      case "sku":
+        onApply({ list: { action: "sku", value: text } });
+        return;
+      case "barcode":
+        onApply({ list: { action: "barcode", value: text } });
+        return;
+      case "stock": {
+        const q = Math.max(0, Math.trunc(Number(num)));
+        if (!Number.isFinite(q)) return;
+        onApply({ list: { action: "stock", value: q } });
+        return;
+      }
+      case "weight": {
+        const v = Number(num);
+        if (!Number.isFinite(v)) return;
+        onApply({ list: { action: "weight", value: { value: v, unit } } });
+        return;
+      }
+      case "package": {
+        const value = { requiresShipping };
+        const w = Number(num);
+        if (Number.isFinite(w) && num !== "") value.weight = { value: w, unit };
+        onApply({ list: { action: "package", value } });
+        return;
+      }
+      case "country":
+        onApply({ list: { action: "country", value: text } });
+        return;
+      case "continueSelling":
+        onApply({ list: { action: "inventoryPolicy", value: "CONTINUE" } });
+        return;
+      case "stopSelling":
+        onApply({ list: { action: "inventoryPolicy", value: "DENY" } });
+        return;
+      case "delete":
+        onApply({ list: { action: "delete" } });
+        return;
+      case "removeImage":
+        onApply({ list: { action: "removeImage" } });
+        return;
+      case "addImage":
+        if (!file) return;
+        onApply({ list: { action: "addImage", file } });
+        return;
+      case "publish":
+        if (pubIds.size === 0) return;
+        onApply({ list: { action: "publish", publicationIds: [...pubIds], publish: publishFlag } });
+        return;
+      default:
+        return;
+    }
+  };
+
+  const togglePub = (id) =>
+    setPubIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const numberBody = (label, placeholder) => (
+    <s-text-field
+      label={label}
+      inputMode="numeric"
+      placeholder={placeholder}
+      value={num}
+      onChange={(e) => setNum(e.target.value)}
+    />
+  );
+
+  const textBody = (label, placeholder) => (
+    <s-text-field
+      label={label}
+      placeholder={placeholder}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+    />
+  );
+
+  const weightUnitSelect = () => (
+    <s-select label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
+      {WEIGHT_UNITS.map((u) => (
+        <s-option key={u} value={u}>
+          {u.toLowerCase()}
+        </s-option>
+      ))}
+    </s-select>
+  );
+
+  let body = null;
+  if (action === "price") {
+    body = listMode ? (
+      numberBody("Set price to", "0.00")
+    ) : (
+      <s-stack direction="block" gap="base">
+        <s-select label="How" value={priceMode} onChange={(e) => setPriceMode(e.target.value)}>
+          <s-option value="set">Set price to</s-option>
+          <s-option value="amount">Adjust by amount</s-option>
+          <s-option value="percent">Adjust by percent</s-option>
+        </s-select>
+        {numberBody(priceMode === "percent" ? "Percent" : "Amount", "0.00")}
+      </s-stack>
+    );
+  } else if (action === "sku") body = textBody("SKU", "New SKU for all selected");
+  else if (action === "barcode") body = textBody("Barcode", "New barcode");
+  else if (action === "stock") body = numberBody("Available quantity", "0");
+  else if (action === "weight") {
+    body = (
+      <s-stack direction="inline" gap="base" alignItems="end">
+        {numberBody("Weight", "0")}
+        {weightUnitSelect()}
+      </s-stack>
+    );
+  } else if (action === "package") {
+    body = (
+      <s-stack direction="block" gap="base">
+        <s-checkbox
+          label="This is a physical product (requires shipping)"
+          checked={requiresShipping}
+          onChange={(e) => setRequiresShipping(e.target.checked)}
+        />
+        {requiresShipping && (
+          <s-stack direction="inline" gap="base" alignItems="end">
+            {numberBody("Weight (optional)", "0")}
+            {weightUnitSelect()}
+          </s-stack>
+        )}
+      </s-stack>
+    );
+  } else if (action === "country") {
+    body = (
+      <s-select label="Country/region of origin" value={text} onChange={(e) => setText(e.target.value)}>
+        <s-option value="">— None —</s-option>
+        {COUNTRIES.map((c) => (
+          <s-option key={c.code} value={c.code}>
+            {c.name}
+          </s-option>
+        ))}
+      </s-select>
+    );
+  } else if (action === "addImage") {
+    body = (
+      <s-stack direction="block" gap="base">
+        <s-paragraph>Upload one image and apply it to all {count} selected variants.</s-paragraph>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        />
+      </s-stack>
+    );
+  } else if (action === "removeImage") {
+    body = <s-paragraph>Remove the image from {count} selected variants? They revert to the product default.</s-paragraph>;
+  } else if (action === "delete") {
+    body = <s-paragraph>Delete {count} selected variants? This can&apos;t be undone.</s-paragraph>;
+  } else if (action === "continueSelling") {
+    body = <s-paragraph>Let customers buy {count} selected variants when they&apos;re out of stock?</s-paragraph>;
+  } else if (action === "stopSelling") {
+    body = <s-paragraph>Stop selling {count} selected variants when they&apos;re out of stock?</s-paragraph>;
+  } else if (action === "publish") {
+    body = (
+      <s-stack direction="block" gap="base">
+        <s-paragraph>Choose sales channels, then Publish or Unpublish the product.</s-paragraph>
+        <s-stack direction="block" gap="small">
+          {publications.length === 0 ? (
+            <s-text color="subdued">No sales channels found.</s-text>
+          ) : (
+            publications.map((p) => (
+              <s-checkbox
+                key={p.id}
+                label={p.name}
+                checked={pubIds.has(p.id)}
+                onChange={() => togglePub(p.id)}
+              />
+            ))
+          )}
+        </s-stack>
+      </s-stack>
+    );
+  }
+
+  const destructive = action === "delete";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 40,
+        padding: "16px",
+      }}
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          inset: 0,
+          border: "none",
+          padding: 0,
+          background: "rgba(0,0,0,0.35)",
+          cursor: "default",
+        }}
+      />
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          background: "#fff",
+          borderRadius: "12px",
+          padding: "20px",
+          width: "min(460px, 100%)",
+          maxHeight: "85vh",
+          overflowY: "auto",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+        }}
+      >
+        <s-stack direction="block" gap="base">
+          <s-heading>{BULK_TITLES[action]}</s-heading>
+          <s-text color="subdued">{count} selected</s-text>
+          {body}
+          <s-stack direction="inline" gap="base" justifyContent="end">
+            <s-button variant="tertiary" onClick={onClose} disabled={busy}>
+              Cancel
+            </s-button>
+            {action === "publish" && (
+              <s-button
+                variant="secondary"
+                onClick={listMode ? () => listApply(false) : applyUnpublish}
+                disabled={busy || pubIds.size === 0}
+              >
+                Unpublish
+              </s-button>
+            )}
+            <s-button
+              variant="primary"
+              tone={destructive ? "critical" : undefined}
+              onClick={listMode ? () => listApply(true) : apply}
+              {...(busy ? { loading: true } : {})}
+            >
+              {action === "delete" ? "Delete" : action === "publish" ? "Publish" : "Apply"}
+            </s-button>
+          </s-stack>
+        </s-stack>
+      </div>
+    </div>
+  );
+}
+
 export default function Variants() {
-  const { product, productList } = useLoaderData();
+  const { product, productList, publications = [] } = useLoaderData();
   const shopify = useAppBridge();
   const fetcher = useFetcher();
   const statusFetcher = useFetcher();
   const imageFetcher = useFetcher();
+  const stockFetcher = useFetcher();
   const revalidator = useRevalidator();
   const [, setSearchParams] = useSearchParams();
   const [expanded, setExpanded] = useState(() => new Set());
@@ -319,6 +1048,15 @@ export default function Variants() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   // variantKey currently uploading -> local object URL shown optimistically.
   const [uploadingImages, setUploadingImages] = useState({});
+  // Bulk editing: selected saved-variant ids + the open action modal.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkAction, setBulkAction] = useState(null); // e.g. "price", "sku", ...
+  const bulkFetcher = useFetcher();
+  // Browse-list selection: whole products + individual variants across products.
+  const [selProducts, setSelProducts] = useState(() => new Set());
+  const [selVariants, setSelVariants] = useState(() => new Set());
+  const [listBulkAction, setListBulkAction] = useState(null);
+  const listBulkFetcher = useFetcher();
 
   const isSubmitting = fetcher.state !== "idle";
   const isPolling = Boolean(operationId);
@@ -354,13 +1092,31 @@ export default function Variants() {
         }),
         price: node.price ?? "",
         sku: node.sku ?? "",
+        quantity: node.inventoryQuantity ?? 0,
         imageUrl: node.media?.nodes?.[0]?.image?.url ?? null,
         mediaId: node.media?.nodes?.[0]?.id ?? null,
         key: node.id,
       })),
     );
+    setSelectedIds(new Set());
     setWarning("");
   }, [product]);
+
+  // Push the inline per-variant quantities to Shopify inventory, keyed by option
+  // combo so it also covers brand-new variants. Reads current on-screen values.
+  const syncInlineStock = () => {
+    const quantitiesByKey = {};
+    for (const v of variants) {
+      const qty = Math.trunc(Number(v.quantity));
+      if (Number.isFinite(qty)) quantitiesByKey[v.options.join("||")] = Math.max(0, qty);
+    }
+    if (Object.keys(quantitiesByKey).length === 0) return;
+    const formData = new FormData();
+    formData.append("productId", product.id);
+    formData.append("intent", "syncStock");
+    formData.append("quantities", JSON.stringify(quantitiesByKey));
+    stockFetcher.submit(formData, { method: "POST" });
+  };
 
   // Handle the save fetcher result (sync success or start of async polling).
   useEffect(() => {
@@ -370,7 +1126,9 @@ export default function Variants() {
     if (fetcher.data?.mode === "sync" && fetcher.data.ok) {
       setSaveSuccess(true);
       shopify.toast.show("Variants saved");
+      syncInlineStock();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetcher.data, shopify]);
 
   // Kick off polling when an operation id arrives.
@@ -395,6 +1153,7 @@ export default function Variants() {
       setOperationId(null);
       setSaveSuccess(true);
       shopify.toast.show("Variants saved");
+      syncInlineStock();
       revalidator.revalidate();
       return;
     }
@@ -508,7 +1267,7 @@ export default function Variants() {
         const prior = existing.get(key);
         const base = prior
           ? { ...prior, options: combo }
-          : { id: null, options: combo, price: "", sku: "", key };
+          : { id: null, options: combo, price: "", sku: "", quantity: 0, key };
         if (priceIndex < 0) return base;
 
         // The derived price must win over any price carried over from a
@@ -606,6 +1365,79 @@ export default function Variants() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageFetcher.data]);
+
+  // --- Bulk selection & actions (saved variants only) ---
+  const savedVariants = variants.filter((v) => v.id);
+  const allSelected =
+    savedVariants.length > 0 && selectedIds.size === savedVariants.length;
+  const selected = variants.filter((v) => selectedIds.has(v.id));
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) =>
+      prev.size === savedVariants.length
+        ? new Set()
+        : new Set(savedVariants.map((v) => v.id)),
+    );
+  };
+
+  // Submit a bulk action; `fields` are appended to a FormData with the productId.
+  const submitBulk = (fields, encType) => {
+    const formData = new FormData();
+    formData.append("productId", product.id);
+    for (const [k, v] of Object.entries(fields)) formData.append(k, v);
+    bulkFetcher.submit(formData, {
+      method: "POST",
+      ...(encType ? { encType } : {}),
+    });
+  };
+
+  // Handle a browse-list bulk result: toast, refresh, and clear on success.
+  useEffect(() => {
+    const data = listBulkFetcher.data;
+    if (!data || !String(data.intent || "").startsWith("listBulk")) return;
+    shopify.toast.show(
+      data.ok
+        ? "Products updated"
+        : data.error ||
+            data.userErrors?.map((e) => e.message).join("; ") ||
+            "Bulk action failed",
+    );
+    setListBulkAction(null);
+    revalidator.revalidate();
+    if (data.ok) {
+      setSelProducts(new Set());
+      setSelVariants(new Set());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listBulkFetcher.data]);
+
+  // Handle a bulk result: toast, refresh, close modal, clear selection.
+  useEffect(() => {
+    const data = bulkFetcher.data;
+    if (!data || !String(data.intent || "").startsWith("bulk")) return;
+    if (data.ok) {
+      shopify.toast.show("Variants updated");
+      setBulkAction(null);
+      setSelectedIds(new Set());
+      revalidator.revalidate();
+    } else {
+      shopify.toast.show(
+        data.error ||
+          data.userErrors?.map((e) => e.message).join("; ") ||
+          "Bulk action failed",
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkFetcher.data]);
 
   const save = () => {
     if (variants.length === 0) {
@@ -739,6 +1571,13 @@ export default function Variants() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+            {variant.id && (
+              <s-checkbox
+                checked={selectedIds.has(variant.id)}
+                onChange={() => toggleSelect(variant.id)}
+                accessibilityLabel={`Select ${variant.options.join(" / ")}`}
+              />
+            )}
             <span style={{ display: "inline-flex", gap: "4px", flexShrink: 0 }}>
               {variant.options.map((value, idx) => (
                 <span
@@ -842,6 +1681,28 @@ export default function Variants() {
               labelAccessibilityVisibility="exclusive"
               value={variant.sku}
               onChange={(e) => updateVariant(vi, "sku", e.target.value)}
+            />
+          </div>
+          <div>
+            <span
+              style={{
+                display: "block",
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: accent,
+                marginBottom: "4px",
+              }}
+            >
+              Quantity
+            </span>
+            <s-text-field
+              label="Quantity"
+              labelAccessibilityVisibility="exclusive"
+              inputMode="numeric"
+              value={String(variant.quantity ?? 0)}
+              onChange={(e) => updateVariant(vi, "quantity", e.target.value)}
             />
           </div>
         </div>
@@ -969,6 +1830,138 @@ export default function Variants() {
     const items = productList?.items ?? [];
     const pageInfo = productList?.pageInfo ?? null;
 
+    const variantToProduct = new Map();
+    for (const it of items) {
+      for (const v of it.variants.nodes) variantToProduct.set(v.id, it.id);
+    }
+
+    const isVariantSel = (v, productId) =>
+      selProducts.has(productId) || selVariants.has(v.id);
+
+    const toggleProduct = (id) => {
+      setSelProducts((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      // Selecting the whole product supersedes any individual variant picks.
+      setSelVariants((prev) => {
+        const next = new Set(prev);
+        for (const [vid, pid] of variantToProduct) {
+          if (pid === id) next.delete(vid);
+        }
+        return next;
+      });
+    };
+
+    const toggleVariantSel = (vid) => {
+      setSelVariants((prev) => {
+        const next = new Set(prev);
+        if (next.has(vid)) next.delete(vid);
+        else next.add(vid);
+        return next;
+      });
+    };
+
+    const allProductsSelected =
+      items.length > 0 && items.every((it) => selProducts.has(it.id));
+    const toggleAllProducts = () => {
+      if (allProductsSelected) {
+        setSelProducts(new Set());
+      } else {
+        setSelProducts(new Set(items.map((it) => it.id)));
+        setSelVariants(new Set());
+      }
+    };
+
+    const selCount = selProducts.size + selVariants.size;
+
+    // Turn the selection into [{ productId, variantIds: [ids] | "all" }].
+    const buildGroups = () => {
+      const groups = [];
+      for (const pid of selProducts) {
+        groups.push({ productId: pid, variantIds: "all" });
+      }
+      const byProduct = new Map();
+      for (const vid of selVariants) {
+        const pid = variantToProduct.get(vid);
+        if (!pid || selProducts.has(pid)) continue;
+        if (!byProduct.has(pid)) byProduct.set(pid, []);
+        byProduct.get(pid).push(vid);
+      }
+      for (const [pid, vids] of byProduct) {
+        groups.push({ productId: pid, variantIds: vids });
+      }
+      return groups;
+    };
+
+    const submitListBulk = (fields, encType) => {
+      const formData = new FormData();
+      for (const [k, v] of Object.entries(fields)) formData.append(k, v);
+      listBulkFetcher.submit(formData, {
+        method: "POST",
+        ...(encType ? { encType } : {}),
+      });
+    };
+
+    // Package the modal's raw { action, value } with the selection groups.
+    const onListApply = ({ list }) => {
+      const groups = buildGroups();
+      if (groups.length === 0) return;
+      const g = JSON.stringify(groups);
+      switch (list.action) {
+        case "price":
+        case "sku":
+        case "barcode":
+        case "weight":
+        case "package":
+        case "country":
+        case "inventoryPolicy":
+          submitListBulk({
+            intent: "listBulkField",
+            field: list.action,
+            value: JSON.stringify(list.value),
+            groups: g,
+          });
+          return;
+        case "stock":
+          submitListBulk({ intent: "listBulkStock", value: String(list.value), groups: g });
+          return;
+        case "delete":
+          submitListBulk({ intent: "listBulkDelete", groups: g });
+          return;
+        case "removeImage":
+          submitListBulk({ intent: "listBulkRemoveImage", groups: g });
+          return;
+        case "addImage":
+          submitListBulk(
+            { intent: "listBulkAddImage", groups: g, file: list.file },
+            "multipart/form-data",
+          );
+          return;
+        case "publish": {
+          const productIds = [
+            ...new Set([
+              ...selProducts,
+              ...[...selVariants]
+                .map((vid) => variantToProduct.get(vid))
+                .filter(Boolean),
+            ]),
+          ];
+          submitListBulk({
+            intent: "listBulkPublish",
+            productIds: JSON.stringify(productIds),
+            publicationIds: JSON.stringify(list.publicationIds),
+            publish: String(list.publish),
+          });
+          return;
+        }
+        default:
+          return;
+      }
+    };
+
     return (
       <s-page heading="Products">
         <s-button slot="primary-action" variant="primary" onClick={pickProduct}>
@@ -1005,6 +1998,93 @@ export default function Variants() {
             </s-box>
           ) : (
             <s-stack direction="block" gap="base">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  padding: "10px 12px",
+                  border: "1px solid #e3e3e3",
+                  borderRadius: "10px",
+                  background: selCount ? "#f1f8f5" : "#fff",
+                  position: "sticky",
+                  top: "8px",
+                  zIndex: 5,
+                }}
+              >
+                <s-checkbox
+                  checked={allProductsSelected}
+                  onChange={toggleAllProducts}
+                  label={
+                    selCount > 0 ? `${selCount} selected` : "Select all products"
+                  }
+                />
+                {selCount > 0 && (
+                  <details style={{ position: "relative", marginInlineStart: "auto" }}>
+                    <summary
+                      style={{
+                        listStyle: "none",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        padding: "6px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #c9cccf",
+                        background: "#fff",
+                      }}
+                    >
+                      Edit ▾
+                    </summary>
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: "110%",
+                        background: "#fff",
+                        border: "1px solid #e3e3e3",
+                        borderRadius: "10px",
+                        boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+                        minWidth: "260px",
+                        zIndex: 20,
+                        overflow: "hidden",
+                        padding: "4px 0",
+                      }}
+                    >
+                      {BULK_ACTIONS.map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={(e) => {
+                            setListBulkAction(a.id);
+                            e.currentTarget.closest("details").open = false;
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 14px",
+                            border: "none",
+                            background: "transparent",
+                            cursor: "pointer",
+                            fontSize: "13px",
+                            color: a.id === "delete" ? "#DE3618" : "inherit",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "#f6f6f7";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "transparent";
+                          }}
+                        >
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+
               {items.map((item) => {
                 const isOpen = expanded.has(item.id);
                 const shown = item.variants.nodes;
@@ -1026,6 +2106,11 @@ export default function Variants() {
                         justifyContent="space-between"
                       >
                         <s-stack direction="inline" gap="base" alignItems="center">
+                          <s-checkbox
+                            checked={selProducts.has(item.id)}
+                            onChange={() => toggleProduct(item.id)}
+                            accessibilityLabel={`Select ${item.title}`}
+                          />
                           {item.featuredImage?.url && (
                             <img
                               src={item.featuredImage.url}
@@ -1073,6 +2158,7 @@ export default function Variants() {
                           ) : (
                             <s-table variant="list">
                               <s-table-header-row>
+                                <s-table-header></s-table-header>
                                 <s-table-header>Variant</s-table-header>
                                 <s-table-header>Price</s-table-header>
                                 <s-table-header>SKU</s-table-header>
@@ -1080,6 +2166,14 @@ export default function Variants() {
                               <s-table-body>
                                 {shown.map((variant) => (
                                   <s-table-row key={variant.id}>
+                                    <s-table-cell>
+                                      <s-checkbox
+                                        checked={isVariantSel(variant, item.id)}
+                                        disabled={selProducts.has(item.id)}
+                                        onChange={() => toggleVariantSel(variant.id)}
+                                        accessibilityLabel={`Select ${variant.title}`}
+                                      />
+                                    </s-table-cell>
                                     <s-table-cell>{variant.title}</s-table-cell>
                                     <s-table-cell>{variant.price}</s-table-cell>
                                     <s-table-cell>{variant.sku || "—"}</s-table-cell>
@@ -1127,12 +2221,33 @@ export default function Variants() {
 
         <s-section slot="aside" heading="How it works">
           <s-paragraph>
-            Every product in your store is listed here. Choose{" "}
-            <s-text type="strong">Show variants</s-text> to see a product&apos;s
-            variants, or <s-text type="strong">Edit</s-text> to add and change
-            them — up to {MAX_VARIANTS} per product.
+            Every product in your store is listed here. Select products or
+            individual variants and choose{" "}
+            <s-text type="strong">Edit</s-text> to change stock, prices,
+            images, and more across many products at once — or{" "}
+            <s-text type="strong">Edit</s-text> a single product to manage its
+            variants in detail.
+          </s-paragraph>
+          <s-paragraph>
+            <s-text color="subdued">
+              Per-variant selection covers the variants shown; select the whole
+              product to apply an action to all of its variants.
+            </s-text>
           </s-paragraph>
         </s-section>
+
+        {listBulkAction && (
+          <BulkModal
+            action={listBulkAction}
+            listMode
+            count={selCount}
+            selected={[]}
+            publications={publications}
+            busy={listBulkFetcher.state !== "idle"}
+            onClose={() => setListBulkAction(null)}
+            onApply={onListApply}
+          />
+        )}
       </s-page>
     );
   }
@@ -1258,6 +2373,98 @@ export default function Variants() {
                 Pricing to set prices by hand.
               </s-text>
             )}
+
+            {savedVariants.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  padding: "10px 12px",
+                  border: "1px solid #e3e3e3",
+                  borderRadius: "10px",
+                  background: selected.length ? "#f1f8f5" : "#fff",
+                  position: "sticky",
+                  top: "8px",
+                  zIndex: 5,
+                }}
+              >
+                <s-checkbox
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  label={
+                    selected.length > 0
+                      ? `${selected.length} selected`
+                      : "Select all"
+                  }
+                />
+                {selected.length > 0 && (
+                  <details style={{ position: "relative", marginInlineStart: "auto" }}>
+                    <summary
+                      style={{
+                        listStyle: "none",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        padding: "6px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #c9cccf",
+                        background: "#fff",
+                      }}
+                    >
+                      Edit ▾
+                    </summary>
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: "110%",
+                        background: "#fff",
+                        border: "1px solid #e3e3e3",
+                        borderRadius: "10px",
+                        boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+                        minWidth: "260px",
+                        zIndex: 20,
+                        overflow: "hidden",
+                        padding: "4px 0",
+                      }}
+                    >
+                      {BULK_ACTIONS.map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={(e) => {
+                            setBulkAction(a.id);
+                            e.currentTarget.closest("details").open = false;
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 14px",
+                            border: "none",
+                            background: "transparent",
+                            cursor: "pointer",
+                            fontSize: "13px",
+                            color: a.id === "delete" ? "#DE3618" : "inherit",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "#f6f6f7";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "transparent";
+                          }}
+                        >
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
+
             <div style={{ display: "grid", gap: "12px" }}>
               {variants.map((variant, vi) => renderVariantCard(variant, vi))}
             </div>
@@ -1268,10 +2475,23 @@ export default function Variants() {
       <s-section slot="aside" heading="How it works">
         <s-paragraph>
           Define your options (like Size or Color), add their values, then
-          generate every combination as a variant. Edit price and SKU inline and
-          save — up to {MAX_VARIANTS} variants per product (Shopify&apos;s maximum).
+          generate every combination as a variant. Edit price, SKU, and quantity
+          inline, or select variants and use <s-text type="strong">Edit</s-text>{" "}
+          to change prices, stock, images, and more — up to {MAX_VARIANTS}{" "}
+          variants per product (Shopify&apos;s maximum).
         </s-paragraph>
       </s-section>
+
+      {bulkAction && (
+        <BulkModal
+          action={bulkAction}
+          selected={selected}
+          publications={publications}
+          busy={bulkFetcher.state !== "idle"}
+          onClose={() => setBulkAction(null)}
+          onApply={({ fields, encType }) => submitBulk(fields, encType)}
+        />
+      )}
     </s-page>
   );
 }

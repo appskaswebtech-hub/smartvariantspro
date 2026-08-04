@@ -1,74 +1,48 @@
-import { useLoaderData } from "react-router";
+import { useEffect } from "react";
+import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { getActivePlan, managedPricingUrl } from "../models/billing.server";
+import { getBillingState } from "../models/billing.server";
+import { PLANS } from "../lib/plans";
 import { ACCENTS, PageHero } from "../components/PageDecor";
 import { Rocket } from "../components/icons";
 
-const PLANS = [
-  {
-    id: "free",
-    name: "Free",
-    price: "$0",
-    cadence: "forever",
-    description: "Get started and try the variant widget on one product.",
-    features: [
-      "100 product",
-      "Up to 2,048 variants per product",
-      "Buttons, dropdown & swatches layouts",
-      "Community support",
-    ],
-    cta: "Downgrade to Free",
-    recommended: false,
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "$9.99",
-    cadence: "per month",
-    description: "For growing stores that need variants everywhere.",
-    features: [
-      "Unlimited products",
-      "Up to 2,048 variants per product",
-      "Buttons, dropdown & swatches layouts",
-      "Priority email support",
-    ],
-    cta: "Upgrade to Pro",
-    recommended: true,
-  },
-  {
-    id: "advanced",
-    name: "Advanced",
-    price: "$24.99",
-    cadence: "per month",
-    description: "Advanced controls and the fastest support.",
-    features: [
-      "Everything in Pro",
-      "Bulk variant editing",
-      "Custom widget styling",
-      "1-hour support response",
-    ],
-    cta: "Upgrade to Advanced",
-    recommended: false,
-  },
-];
-
 export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
-
-  // Read the live subscription from Shopify. Managed Pricing handles the
-  // checkout/upgrade/downgrade flow, so there is no local billing state.
-  const currentPlan = await getActivePlan(admin);
-
-  return {
-    plans: PLANS,
-    currentPlan,
-    pricingUrl: managedPricingUrl(session.shop),
-  };
+  const { admin } = await authenticate.admin(request);
+  const billing = await getBillingState(admin);
+  return { plans: PLANS, currentPlan: billing.activePlan ?? "Free" };
 };
 
 export default function Plans() {
-  const { plans, currentPlan, pricingUrl } = useLoaderData();
+  const { plans, currentPlan } = useLoaderData();
+  const fetcher = useFetcher();
+  const revalidator = useRevalidator();
+  const busy = fetcher.state !== "idle";
+
+  useEffect(() => {
+    const data = fetcher.data;
+    if (!data || !data.ok) return;
+    if (data.confirmationUrl) {
+      // eslint-disable-next-line no-undef
+      window.open(data.confirmationUrl, "_top");
+    } else {
+      revalidator.revalidate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetcher.data]);
+
+  const choose = (plan) => {
+    const formData = new FormData();
+    if (plan.paid) {
+      formData.append("intent", "subscribe");
+      formData.append("plan", plan.name);
+    } else {
+      formData.append("intent", "free");
+    }
+    fetcher.submit(formData, { method: "POST", action: "/app/subscribe" });
+  };
+
+  const errors = fetcher.data && !fetcher.data.ok ? fetcher.data.userErrors ?? [] : [];
 
   return (
     <s-page heading="Plans">
@@ -80,10 +54,20 @@ export default function Plans() {
         to={ACCENTS.orange}
       />
 
+      {errors.length > 0 && (
+        <s-banner tone="critical" heading="Couldn't update your plan">
+          <s-unordered-list>
+            {errors.map((e, i) => (
+              <s-list-item key={i}>{e.message}</s-list-item>
+            ))}
+          </s-unordered-list>
+        </s-banner>
+      )}
+
       <s-section heading="Choose the plan that fits your store">
         <s-paragraph>
-          Upgrade or downgrade any time. Choosing a plan opens Shopify&apos;s
-          secure checkout, and charges appear on your regular Shopify invoice.
+          Upgrade or downgrade any time. Choosing a paid plan opens Shopify&apos;s
+          secure billing page, and charges appear on your regular Shopify invoice.
         </s-paragraph>
 
         <s-grid
@@ -95,7 +79,7 @@ export default function Plans() {
             // Shopify may return the plan by display name ("Pro") or handle
             // ("pro"), so compare case-insensitively.
             const isCurrent =
-              plan.name.toLowerCase() === currentPlan.toLowerCase();
+              plan.name.toLowerCase() === String(currentPlan).toLowerCase();
             return (
               <s-box
                 key={plan.id}
@@ -130,12 +114,15 @@ export default function Plans() {
                   </s-unordered-list>
 
                   <s-button
-                    href={isCurrent ? undefined : pricingUrl}
-                    target={isCurrent ? undefined : "_top"}
                     variant={plan.recommended ? "primary" : "secondary"}
-                    disabled={isCurrent}
+                    disabled={isCurrent || busy}
+                    onClick={() => choose(plan)}
                   >
-                    {isCurrent ? "Current plan" : plan.cta}
+                    {isCurrent
+                      ? "Current plan"
+                      : plan.paid
+                        ? `Upgrade to ${plan.name}`
+                        : "Switch to Free"}
                   </s-button>
                 </s-stack>
               </s-box>
@@ -147,8 +134,7 @@ export default function Plans() {
       <s-section slot="aside" heading="Billing">
         <s-paragraph>
           Billing is handled by Shopify, so charges appear on your regular
-          Shopify invoice. You can change or cancel your plan any time from the
-          plan selection page.
+          Shopify invoice. You can change or cancel your plan any time from here.
         </s-paragraph>
       </s-section>
     </s-page>

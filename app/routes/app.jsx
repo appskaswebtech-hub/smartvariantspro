@@ -2,16 +2,21 @@ import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
+import { getBillingState } from "../models/billing.server";
+import { PLANS } from "../lib/plans";
+import BillingPaywall from "../components/BillingPaywall";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
+  const billing = await getBillingState(admin);
 
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return { apiKey: process.env.SHOPIFY_API_KEY || "", billing, plans: PLANS };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData();
+  const { apiKey, billing, plans } = useLoaderData();
+  const gated = !billing.subscribed && !billing.freeChosen;
 
   return (
     <AppProvider embedded apiKey={apiKey}>
@@ -19,11 +24,11 @@ export default function App() {
         <s-link href="/app/home">Home</s-link>
         <s-link href="/app/variants">Products</s-link>
         <s-link href="/app/customization">Customization</s-link>
-        {/* <s-link href="/app/plans">Plans</s-link> */}
+        <s-link href="/app/plans">Plans</s-link>
         <s-link href="/app/settings">Settings</s-link>
         <s-link href="/app/help">Help</s-link>
       </s-app-nav>
-      <Outlet />
+      {gated ? <BillingPaywall plans={plans} /> : <Outlet />}
     </AppProvider>
   );
 }
