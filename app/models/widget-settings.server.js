@@ -192,22 +192,26 @@ export async function fetchShopOptionNames(admin) {
   return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Parse a JSON string field from ShopSetting; {} when empty/invalid. */
+function safeParseObject(value) {
+  if (value && typeof value === "object") return value;
+  try {
+    const parsed = JSON.parse(value ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
- * Publishes widget settings to an app-data metafield on the app
- * installation so the theme app extension can read them via
- * {{ app.metafields.smart_variants_pro.settings.value }}.
+ * Publishes the FULL widget settings to the app-data metafield the theme app
+ * extension reads via {{ app.metafields.smart_variants_pro.settings.value }}.
+ * `setting` is a ShopSetting row (the single source of truth) — both the
+ * Settings and Customization pages call this after saving, so the metafield
+ * always mirrors the complete row and neither page clobbers the other's keys.
+ * optionStyles/optionContents are JSON strings in the DB, so they're parsed.
  */
-export async function syncWidgetMetafield(
-  admin,
-  {
-    widgetLayout,
-    themeColor,
-    optionStyles = {},
-    optionContents = {},
-    showQuantity = true,
-    showAddToCart = true,
-  },
-) {
+export async function publishWidgetMetafield(admin, setting = {}) {
   const ownerResponse = await admin.graphql(CURRENT_APP_INSTALLATION_QUERY);
   const ownerJson = await ownerResponse.json();
   const ownerId = ownerJson.data?.currentAppInstallation?.id;
@@ -224,12 +228,15 @@ export async function syncWidgetMetafield(
           key: METAFIELD_KEY,
           type: "json",
           value: JSON.stringify({
-            layout: widgetLayout,
-            theme_color: themeColor,
-            option_styles: optionStyles,
-            option_swatch_content: optionContents,
-            show_quantity: showQuantity,
-            show_add_to_cart: showAddToCart,
+            layout: setting.widgetLayout ?? "radio",
+            theme_color: setting.themeColor ?? "#111111",
+            option_styles: safeParseObject(setting.optionStyles),
+            option_swatch_content: safeParseObject(setting.optionContents),
+            show_quantity: setting.showQuantity ?? true,
+            show_add_to_cart: setting.showAddToCart ?? true,
+            add_to_cart_label: setting.addToCartLabel ?? "Add to cart",
+            show_price: setting.showPrice ?? true,
+            show_availability: setting.showAvailability ?? true,
           }),
         },
       ],

@@ -252,7 +252,7 @@ export default function BillingPaywall({ plans }) {
                         opacity: busy ? 0.6 : 1,
                       }}
                     >
-                      {busy ? "Opening billing…" : `Buy ${plan.name}`}
+                      {`Buy ${plan.name}`}
                     </button>
                   ) : (
                     <button

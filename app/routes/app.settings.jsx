@@ -4,6 +4,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { publishWidgetMetafield } from "../models/widget-settings.server";
 import { ACCENTS, PageHero } from "../components/PageDecor";
 import { Gear } from "../components/icons";
 
@@ -23,7 +24,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const formData = await request.formData();
 
   const data = {
@@ -34,13 +35,22 @@ export const action = async ({ request }) => {
     ),
   };
 
-  await prisma.shopSetting.upsert({
+  const merged = await prisma.shopSetting.upsert({
     where: { shop: session.shop },
     update: data,
     create: { shop: session.shop, ...data },
   });
 
-  return { ok: true };
+  try {
+    // Publish the full row so the storefront widget picks up these values
+    // (alongside the Customization-owned keys already stored).
+    await publishWidgetMetafield(admin, merged);
+  } catch (error) {
+    console.error("Widget settings metafield sync failed", error);
+    return { ok: true, synced: false };
+  }
+
+  return { ok: true, synced: true };
 };
 
 export default function Settings() {
@@ -125,13 +135,12 @@ export default function Settings() {
         </fetcher.Form>
       </s-section>
 
-      <s-section slot="aside" heading="About these defaults">
+      <s-section slot="aside" heading="About these settings">
         <s-paragraph>
-          These are convenience defaults for the storefront widget. The values
-          that actually render on a product page come from the app block&apos;s
-          settings in the theme editor, which you can adjust per product
-          template. To change how variants are displayed and the widget&apos;s
-          theme color, use the Customization page.
+          These control the add-to-cart button label and whether price and
+          availability show in the storefront widget, across your whole store.
+          To change how variants are displayed and the widget&apos;s theme
+          color, use the Customization page.
         </s-paragraph>
       </s-section>
     </s-page>

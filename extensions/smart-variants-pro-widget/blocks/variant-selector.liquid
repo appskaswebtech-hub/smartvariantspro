@@ -40,6 +40,21 @@
   {%- endif -%}
 
   {%- comment -%}
+    Label / price / availability are controlled store-wide from the app's
+    Settings page (published to this metafield), not the theme editor. Same
+    nil-safe rule: only an explicit false hides price/availability.
+  {%- endcomment -%}
+  {%- assign pv_button_label = pv_settings.add_to_cart_label | default: 'Add to cart' -%}
+  {%- assign pv_show_price = true -%}
+  {%- if pv_settings.show_price == false -%}
+    {%- assign pv_show_price = false -%}
+  {%- endif -%}
+  {%- assign pv_show_availability = true -%}
+  {%- if pv_settings.show_availability == false -%}
+    {%- assign pv_show_availability = false -%}
+  {%- endif -%}
+
+  {%- comment -%}
     Per-product overrides live on the product's own app-owned metafield and
     take priority over the store-wide styles above.
   {%- endcomment -%}
@@ -224,11 +239,11 @@
         {%- endfor -%}
       </div>
 
-      {%- if block.settings.show_price -%}
+      {%- if pv_show_price -%}
         <div class="pv-variant-selector__price" data-pv-price>{{ current_variant.price | money }}</div>
       {%- endif -%}
 
-      {%- if block.settings.show_availability -%}
+      {%- if pv_show_availability -%}
         <div class="pv-variant-selector__availability" data-pv-availability>
           {%- if current_variant.available -%}In stock{%- else -%}Sold out{%- endif -%}
         </div>
@@ -246,11 +261,11 @@
           type="submit"
           class="pv-variant-selector__submit"
           data-pv-submit
-          data-pv-button-label="{{ block.settings.button_label | escape }}"
+          data-pv-button-label="{{ pv_button_label | escape }}"
           {% unless current_variant.available %}disabled{% endunless %}
         >
           <span data-pv-submit-text>
-            {%- if current_variant.available -%}{{ block.settings.button_label }}{%- else -%}Sold out{%- endif -%}
+            {%- if current_variant.available -%}{{ pv_button_label }}{%- else -%}Sold out{%- endif -%}
           </span>
         </button>
       {%- endif -%}
@@ -296,24 +311,6 @@
       "id": "heading",
       "label": "t:labels.heading",
       "default": "Choose your options"
-    },
-    {
-      "type": "text",
-      "id": "button_label",
-      "label": "t:labels.button_label",
-      "default": "Add to cart"
-    },
-    {
-      "type": "checkbox",
-      "id": "show_price",
-      "label": "t:labels.show_price",
-      "default": true
-    },
-    {
-      "type": "checkbox",
-      "id": "show_availability",
-      "label": "t:labels.show_availability",
-      "default": true
     },
     {
       "type": "header",

@@ -2100,13 +2100,24 @@ export default function Variants() {
                     borderRadius="base"
                   >
                     <s-stack direction="block" gap="base">
-                      <s-stack
-                        direction="inline"
-                        gap="base"
-                        alignItems="center"
-                        justifyContent="space-between"
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          flexWrap: "nowrap",
+                        }}
                       >
-                        <s-stack direction="inline" gap="base" alignItems="center">
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "12px",
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
                           <s-checkbox
                             checked={selProducts.has(item.id)}
                             onChange={() => toggleProduct(item.id)}
@@ -2122,18 +2133,26 @@ export default function Variants() {
                                 objectFit: "cover",
                                 borderRadius: "6px",
                                 display: "block",
+                                flexShrink: 0,
                               }}
                             />
                           )}
-                          <s-stack direction="block" gap="small-200">
+                          <div style={{ display: "grid", gap: "2px", minWidth: 0, overflow: "hidden" }}>
                             <s-text type="strong">{item.title}</s-text>
                             <s-text color="subdued">
                               {item.hasOnlyDefaultVariant ? "" : optionNames || "No options"}
                             </s-text>
-                          </s-stack>
-                        </s-stack>
+                          </div>
+                        </div>
 
-                        <s-stack direction="inline" gap="small" alignItems="center">
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            flexShrink: 0,
+                          }}
+                        >
                           <s-badge tone="info">{total} variants</s-badge>
                           <s-button
                             variant="tertiary"
@@ -2147,8 +2166,8 @@ export default function Variants() {
                           >
                             Edit
                           </s-button>
-                        </s-stack>
-                      </s-stack>
+                        </div>
+                      </div>
 
                       {isOpen && (
                         <s-stack direction="block" gap="small">

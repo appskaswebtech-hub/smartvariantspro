@@ -8,7 +8,7 @@ import {
   fetchProductOverrides,
   fetchShopOptionNames,
   syncProductOverride,
-  syncWidgetMetafield,
+  publishWidgetMetafield,
 } from "../models/widget-settings.server";
 import {
   SWATCH_CONTENTS,
@@ -423,21 +423,16 @@ export const action = async ({ request }) => {
     showAddToCart,
   };
 
-  await prisma.shopSetting.upsert({
+  const merged = await prisma.shopSetting.upsert({
     where: { shop: session.shop },
     update: values,
     create: { shop: session.shop, ...values },
   });
 
   try {
-    await syncWidgetMetafield(admin, {
-      widgetLayout,
-      themeColor,
-      optionStyles,
-      optionContents,
-      showQuantity,
-      showAddToCart,
-    });
+    // Publish the full row so Settings-owned keys (label/price/availability)
+    // are preserved alongside these Customization keys.
+    await publishWidgetMetafield(admin, merged);
   } catch (error) {
     console.error("Widget settings metafield sync failed", error);
     return { ok: true, synced: false, scope: "global" };
