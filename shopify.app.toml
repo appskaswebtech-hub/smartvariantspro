@@ -2,19 +2,15 @@
 
 client_id = "859f9b23b6088502bb94a5ffc9890d21"
 name = "Smart Variants Pro"
-handle = "smart-variants-pro"
 application_url = "https://smartvariants.kaswebtechsolutions.com"
 embedded = true
+handle = "smart-variants-pro"
 
 [build]
 automatically_update_urls_on_dev = true
 
 [webhooks]
 api_version = "2026-10"
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/app/scopes_update"
-  topics = [ "app/scopes_update" ]
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/uninstalled"
@@ -24,9 +20,13 @@ api_version = "2026-10"
   uri = "/webhooks/app/compliance"
   compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,write_metaobjects,write_metaobject_definitions,read_locations,write_inventory,read_publications,write_publications"
+scopes = "read_locations,read_publications,write_inventory,write_metaobject_definitions,write_metaobjects,write_products,write_publications"
 
 [auth]
 redirect_urls = [ "https://smartvariants.kaswebtechsolutions.com/api/auth" ]

@@ -9,7 +9,7 @@ export const PLANS = [
     cadence: "forever",
     description: "Get started and try the variant widget on one product.",
     features: [
-      "1 product",
+      "100 product",
       "Up to 2,048 variants per product",
       "Buttons, dropdown & swatches layouts",
       "Community support",

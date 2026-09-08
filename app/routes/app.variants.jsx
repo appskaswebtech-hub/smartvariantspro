@@ -47,6 +47,7 @@ const PRODUCT_LIST_QUERY = `#graphql
       nodes {
         id
         title
+        hasOnlyDefaultVariant
         featuredImage { url altText }
         options { name }
         variantsCount { count }
@@ -2127,7 +2128,7 @@ export default function Variants() {
                           <s-stack direction="block" gap="small-200">
                             <s-text type="strong">{item.title}</s-text>
                             <s-text color="subdued">
-                              {optionNames || "No options"}
+                              {item.hasOnlyDefaultVariant ? "" : optionNames || "No options"}
                             </s-text>
                           </s-stack>
                         </s-stack>
@@ -2174,7 +2175,13 @@ export default function Variants() {
                                         accessibilityLabel={`Select ${variant.title}`}
                                       />
                                     </s-table-cell>
-                                    <s-table-cell>{variant.title}</s-table-cell>
+                                    <s-table-cell>
+                                      {item.hasOnlyDefaultVariant ? (
+                                        <s-text color="subdued">No variants</s-text>
+                                      ) : (
+                                        variant.title
+                                      )}
+                                    </s-table-cell>
                                     <s-table-cell>{variant.price}</s-table-cell>
                                     <s-table-cell>{variant.sku || "—"}</s-table-cell>
                                   </s-table-row>
